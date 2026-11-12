@@ -1,0 +1,207 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+
+test('partial queue failure leaves only unsent items for retry', async () => {
+  const { enqueueSelectedItems } = await import('../src/download/submit.js');
+  const entries = ['A', 'B', 'C'].map((title, index) => ({ index, item: { title } }));
+  const submitted = new Set();
+  const calls = [];
+  const rendered = [];
+  const enqueue = async request => {
+    calls.push(request.title);
+    if (request.title === 'B' && calls.filter(title => title === 'B').length === 1) {
+      throw new Error('queue unavailable');
+    }
+    return { id: 'task-' + request.title, title: request.title };
+  };
+  const onQueued = (entry, result) => {
+    submitted.add(entry.index);
+    rendered.push(result.title);
+  };
+  const makeRequest = entry => ({ title: entry.item.title });
+
+  const first = await enqueueSelectedItems(entries, makeRequest, enqueue, onQueued);
+  assert.equal(first.queued, 1);
+  assert.equal(first.remaining, 2);
+  assert.match(first.error.message, /queue unavailable/);
+  assert.deepEqual(calls, ['A', 'B']);
+  assert.deepEqual([...submitted], [0]);
+
+  const retry = await enqueueSelectedItems(entries.filter(entry => !submitted.has(entry.index)), makeRequest, enqueue, onQueued);
+  assert.equal(retry.queued, 2);
+  assert.equal(retry.remaining, 0);
+  assert.equal(retry.error, null);
+  assert.deepEqual(calls, ['A', 'B', 'B', 'C']);
+  assert.deepEqual(rendered, ['A', 'B', 'C']);
+});
+const { createServer } = require('node:http');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const { existsSync, readFileSync: readFile } = require('node:fs');
+const { mkdtemp, rm } = require('node:fs/promises');
+const { tmpdir } = require('node:os');
+const { join, resolve, sep } = require('node:path');
+
+const chromeCandidates = [
+  process.env.CHROME_BIN,
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium'
+].filter(Boolean);
+const chrome = chromeCandidates.find(existsSync);
+
+test('custom selects, settings and dialogs work through the renderer DOM', { skip: chrome ? false : 'Chrome or Edge unavailable' }, async () => {
+  const srcRoot = resolve(__dirname, '..', 'src');
+  const html = readFile(join(srcRoot, 'index.html'), 'utf8').replace(
+    '<script src="renderer.js"></script>',
+    '<script src="/mock.js"></script><script src="/renderer.js"></script><script src="/probe.js"></script>'
+  );
+  const mock = `
+    const savedSettings = {contentModes:['video-audio'],downloadDir:'Downloads/BiliGo',fragmentThreads:15,
+      maxConcurrentTasks:8,containerFormat:'mp4',videoQuality:'bv',audioQuality:'ba/b',audioFormat:'original',
+      retries:'7',filenameTemplate:'%(title)s.%(ext)s',subtitleLangs:'all',rateLimit:''};
+    window.savedChanges = [];
+    window.bili = {
+      appVersion: async () => '1.3.0',
+      loginStatus: async () => ({loggedIn:false, profile:null}),
+      startLogin: async () => ({qr:{size:1, data:[1]}}),
+      cancelLogin: async () => { window.loginCancellations = (window.loginCancellations || 0) + 1; },
+      getSettings: async () => ({...savedSettings}),
+      setSettings: async changes => { window.savedChanges.push(changes); Object.assign(savedSettings, changes); },
+      resetSettings: () => new Promise(resolve => {
+        window.finishReset = () => resolve({...savedSettings, fragmentThreads:3, maxConcurrentTasks:1, retries:'3', downloadDir:'Default/BiliGo'});
+      }),
+      history: async () => [],
+      listQueue: async () => [],
+      checkForUpdates: async () => ({hasUpdate:false,currentVersion:'1.3.0'}),
+      on() {}
+    };
+  `;
+  const probe = [
+    "(async () => {",
+    "const output=document.createElement('pre');output.id='select-probe-result';document.body.append(output);",
+    "try {",
+    "const settle=()=>new Promise(resolve=>setTimeout(resolve,0));",
+    "const key=(key,shiftKey=false)=>document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key,shiftKey,bubbles:true,cancelable:true}));",
+    "await settle();",
+    "const native=document.querySelector('#videoQuality');",
+    "const wrapper=native.previousElementSibling;",
+    "const trigger=wrapper.querySelector('.custom-select-button');",
+    "const legacyQuality=native.value==='bv*';",
+    "trigger.focus();trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));",
+    "const arrowOpened=trigger.getAttribute('aria-expanded')==='true' && document.activeElement.classList.contains('custom-select-option');",
+    "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));",
+    "const escapeClosed=trigger.getAttribute('aria-expanded')==='false' && document.activeElement===trigger;",
+    "trigger.click();document.querySelector('#urlInput').focus();",
+    "const tabClosed=trigger.getAttribute('aria-expanded')==='false' && !wrapper.classList.contains('open');",
+    "trigger.click();document.body.click();",
+    "const outsideClosed=trigger.getAttribute('aria-expanded')==='false' && !wrapper.classList.contains('open');",
+    "trigger.click();wrapper.querySelectorAll('.custom-select-option')[1].click();",
+    "const selectedClosed=trigger.getAttribute('aria-expanded')==='false' && native.value==='bv[height<=2160]';",
+    "await settle();",
+    "const qualitySaved=native.value==='bv[height<=2160]' && window.savedChanges.some(change=>change.videoQuality===native.value);",
+    "const optionTabStops=[...wrapper.querySelectorAll('[role=option]')].every(option=>option.tabIndex===-1);",
+    "const controlsLinked=trigger.getAttribute('aria-controls')===wrapper.querySelector('[role=listbox]').id;",
+    "const subtitleMenu=document.querySelector('#subtitlePicker [role=listbox]');const subtitleTrigger=document.querySelector('#subtitlePicker .custom-select-button');",
+    "const multiSemantics=subtitleMenu.getAttribute('aria-multiselectable')==='true' && subtitleTrigger.getAttribute('aria-controls')===subtitleMenu.id;",
+    "const historyEmpty=document.querySelector('#historyList .empty-state');",
+    "document.querySelector('[data-view=history]').click();await settle();",
+    "const historyEmptyReused=historyEmpty===document.querySelector('#historyList .empty-state');",
+    "document.querySelector('[data-view=download]').click();",
+    "document.querySelector('input[value=cover]').click();document.querySelector('input[value=audio]').click();",
+    "const format=document.querySelector('#audioFormat');",
+    "const audioWithExtras=!format.disabled && !format.previousElementSibling.querySelector('button').disabled && document.querySelector('#embedSubs').disabled && document.querySelector('#containerFormat').disabled;",
+    "const login=document.querySelector('#loginSmall');login.focus();login.click();await settle();",
+    "const dialog=document.querySelector('#loginModal');const shell=document.querySelector('.app-shell');",
+    "const loginFocused=shell.inert && document.activeElement.id==='closeModal' && dialog.getAttribute('aria-modal')==='true';",
+    "const loginWrapsBack=!key('Tab',true) && document.activeElement.id==='refreshQr';",
+    "const loginWrapsForward=!key('Tab') && document.activeElement.id==='closeModal';",
+    "key('Escape');",
+    "const loginDismissed=dialog.classList.contains('hidden') && !shell.inert && document.activeElement===login && window.loginCancellations===1;",
+    "document.querySelector('[data-view=settings]').click();",
+    "const threads=document.querySelector('#fragmentThreads');",
+    "const threadsRestored=threads.value==='15' && threads.options.length===16 && threads.previousElementSibling.querySelector('button').textContent==='15 个';",
+    "const retries=document.querySelector('#performanceRetries');",
+    "const retriesRestored=retries.value==='7' && retries.previousElementSibling.querySelector('button').textContent==='7 次';retries.value='10';retries.dispatchEvent(new Event('change'));",
+    "const concurrency=document.querySelector('#maxConcurrentTasks');",
+    "const concurrencyRestored=concurrency.value==='8' && concurrency.previousElementSibling.querySelector('button').textContent==='8 个';",
+    "const retriesSaved=window.savedChanges.some(change=>change.retries==='10');",
+    "const resetTrigger=document.querySelector('#resetSettingsBtn');resetTrigger.focus();resetTrigger.click();",
+    "const resetDialog=document.querySelector('#resetSettingsModal');",
+    "const resetFocused=shell.inert && document.activeElement.id==='cancelResetSettings' && document.elementFromPoint(5,70)===resetDialog;",
+    "key('Escape');",
+    "const resetDismissed=resetDialog.classList.contains('hidden') && !shell.inert && document.activeElement===resetTrigger;",
+    "resetTrigger.click();document.querySelector('#confirmResetSettings').click();key('Escape');",
+    "const resetBusy=!resetDialog.classList.contains('hidden') && document.activeElement===resetDialog && resetDialog.getAttribute('aria-busy')==='true';",
+    "window.finishReset();await settle();",
+    "const resetRestored=resetDialog.classList.contains('hidden') && !shell.inert && document.activeElement===resetTrigger && threads.value==='3' && threads.previousElementSibling.querySelector('button').textContent==='3 个' && retries.value==='3';",
+    "const directoryUpdated=document.querySelector('#downloadDirText').textContent==='Default/BiliGo' && document.querySelector('#destination').textContent==='保存至 Default/BiliGo';",
+    "output.textContent=JSON.stringify({arrowOpened,escapeClosed,tabClosed,outsideClosed,selectedClosed,qualitySaved,legacyQuality,optionTabStops,controlsLinked,multiSemantics,historyEmptyReused,audioWithExtras,loginFocused,loginWrapsBack,loginWrapsForward,loginDismissed,threadsRestored,retriesRestored,concurrencyRestored,retriesSaved,resetFocused,resetDismissed,resetBusy,resetRestored,directoryUpdated});",
+    "}catch(error){output.textContent=JSON.stringify({error:error.message});}",
+    "})();"
+  ].join('\n');
+  const server = createServer((request, response) => {
+    const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
+    if (pathname === '/') { response.setHeader('Content-Type', 'text/html; charset=utf-8'); response.end(html); return; }
+    if (pathname === '/mock.js' || pathname === '/probe.js') {
+      response.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+      response.end(pathname === '/mock.js' ? mock : probe);
+      return;
+    }
+    const file = resolve(srcRoot, '.' + pathname);
+    if (!file.startsWith(srcRoot + sep)) { response.writeHead(404).end(); return; }
+    try {
+      const body = readFile(file);
+      response.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'application/octet-stream');
+      response.end(body);
+    } catch {
+      response.writeHead(404).end();
+    }
+  });
+  const profile = await mkdtemp(join(tmpdir(), 'biligo-select-test-'));
+  try {
+    await new Promise(resolveReady => server.listen(0, '127.0.0.1', resolveReady));
+    const port = server.address().port;
+    const { stdout } = await promisify(execFile)(chrome, [
+      '--headless=new', '--disable-gpu', '--no-first-run', '--disable-extensions', '--window-size=1200,800',
+      '--user-data-dir=' + profile, '--virtual-time-budget=1000', '--dump-dom',
+      'http://127.0.0.1:' + port + '/'
+    ], { maxBuffer: 2 * 1024 * 1024, timeout: 15000 });
+    const match = stdout.match(/<pre id="select-probe-result">([^<]+)<\/pre>/);
+    assert.ok(match, 'browser probe result should be present');
+    const outcome = JSON.parse(match[1].replaceAll('&quot;', '"'));
+    assert.deepEqual(outcome, {
+      arrowOpened: true,
+      escapeClosed: true,
+      tabClosed: true,
+      outsideClosed: true,
+      selectedClosed: true,
+      qualitySaved: true,
+      legacyQuality: true,
+      optionTabStops: true,
+      controlsLinked: true,
+      multiSemantics: true,
+      historyEmptyReused: true,
+      audioWithExtras: true,
+      loginFocused: true,
+      loginWrapsBack: true,
+      loginWrapsForward: true,
+      loginDismissed: true,
+      threadsRestored: true,
+      retriesRestored: true,
+      concurrencyRestored: true,
+      retriesSaved: true,
+      resetFocused: true,
+      resetDismissed: true,
+      resetBusy: true,
+      resetRestored: true,
+      directoryUpdated: true
+    });
+  } finally {
+    await new Promise(done => server.close(done));
+    if (resolve(profile).startsWith(resolve(tmpdir()) + sep) && profile.split(sep).at(-1).startsWith('biligo-select-test-')) {
+      await rm(profile, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+});

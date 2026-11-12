@@ -1,4 +1,6 @@
-const downloadModes = new Set(['video-audio', 'video', 'audio', 'cover', 'subtitle', 'danmaku']);
+import * as downloadOptions from './options.js';
+
+const { getMediaCapabilities, normalizeFragmentThreads } = downloadOptions.default ?? globalThis.BiliGoDownloadOptions;
 
 export function readDownloadForm({ sourceUrl, selectedItems, resource, modes, controls, subtitleValues }) {
   const selectedSubtitleLangs = subtitleValues.map(value => value.split(':')[0]).join(',');
@@ -28,33 +30,22 @@ export function validateDownloadForm(form) {
   if (!form.selectedItems.length) return '请至少选择一个条目';
   if (!form.modes.length) return '请至少选择一种下载内容';
   if ((form.modes.includes('subtitle') || form.embedSubs) && !form.subtitleValues.length) return '请至少选择字幕语言';
-  if (form.modes.some(mode => !downloadModes.has(mode))) return '下载内容无效';
-  if (form.embedSubs && !form.modes.includes('video-audio') && !form.modes.includes('video')) return '嵌入字幕仅支持视频模式';
+  if (form.embedSubs && !getMediaCapabilities(form.modes).hasVideo) return '嵌入字幕仅支持视频模式';
   return '';
 }
 
 export function buildDownloadRequest(form, item) {
-    const url = item.url || form.sourceUrl;
-    return {
-      url,
-      urls: [url],
-      itemTitles: [item.title],
-      title: item.title,
-      folderName: form.folderName,
-      resourceType: 'video',
-      contentModes: form.modes,
-      videoQuality: form.videoQuality,
-      audioQuality: form.audioQuality,
-      audioFormat: form.audioFormat,
-      filenameTemplate: form.filenameTemplate,
-      containerFormat: form.containerFormat,
-      embedThumbnail: form.embedThumbnail,
-      embedMetadata: form.embedMetadata,
-      embedSubs: form.embedSubs,
-      embedChapters: form.embedChapters,
-      subtitleLangs: form.subtitleLangs,
-      rateLimit: form.rateLimit,
-      retries: form.retries,
-      fragmentThreads: form.fragmentThreads
-    };
+  const { sourceUrl, selectedItems, subtitleValues, modes, folderName, fragmentThreads, ...options } = form;
+  const url = item.url || sourceUrl;
+  return {
+    url,
+    urls: [url],
+    itemTitles: [item.title],
+    title: item.title,
+    folderName,
+    resourceType: 'video',
+    contentModes: modes,
+    ...options,
+    ...(fragmentThreads === undefined ? {} : { fragmentThreads: normalizeFragmentThreads(fragmentThreads) })
+  };
 }

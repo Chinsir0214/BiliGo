@@ -1,8 +1,20 @@
-const { DOWNLOAD_DEFAULTS, AUDIO_FORMATS, CONTAINER_FORMATS } = require('./constants');
+const { DOWNLOAD_DEFAULTS, AUDIO_FORMATS, CONTAINER_FORMATS, normalizeVideoQuality } = require('./constants');
+const { getMediaCapabilities, normalizeContentModes, normalizeFragmentThreads } = require('./options');
+
+const PERSISTED_TASK_FIELDS = [
+  'id', 'url', 'urls', 'itemTitles', 'title', 'thumbnail', 'folderName', 'resourceType',
+  'contentModes', 'videoQuality', 'audioQuality', 'audioFormat', 'outputDir',
+  'filenameTemplate', 'containerFormat', 'embedChapters', 'embedThumbnail',
+  'embedMetadata', 'embedSubs', 'subtitleLangs', 'rateLimit', 'retries',
+  'fragmentThreads', 'queuedAt'
+];
 
 function createDownloadTask(data, info, settings, id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`) {
   const selectedAudioFormat = data.audioFormat || settings.audioFormat;
   const selectedContainer = data.containerFormat || settings.containerFormat;
+  const contentModes = normalizeContentModes(data.contentModes?.length ? data.contentModes : settings.contentModes?.length ? settings.contentModes : [data.mode || 'video-audio']);
+  const { hasVideo } = getMediaCapabilities(contentModes);
+  const fragmentThreads = data.fragmentThreads === undefined ? settings.fragmentThreads : data.fragmentThreads;
   return {
     id,
     url: data.url,
@@ -12,8 +24,8 @@ function createDownloadTask(data, info, settings, id = `${Date.now()}-${Math.ran
     thumbnail: info.thumbnail,
     folderName: data.folderName,
     resourceType: data.resourceType,
-    contentModes: data.contentModes?.length ? data.contentModes : settings.contentModes?.length ? settings.contentModes : [data.mode || 'video-audio'],
-    videoQuality: data.videoQuality || settings.videoQuality || DOWNLOAD_DEFAULTS.videoQuality,
+    contentModes,
+    videoQuality: normalizeVideoQuality(data.videoQuality || settings.videoQuality || DOWNLOAD_DEFAULTS.videoQuality),
     audioQuality: data.audioQuality || settings.audioQuality || DOWNLOAD_DEFAULTS.audioQuality,
     audioFormat: AUDIO_FORMATS.has(selectedAudioFormat) ? selectedAudioFormat : DOWNLOAD_DEFAULTS.audioFormat,
     outputDir: data.outputDir,
@@ -22,42 +34,17 @@ function createDownloadTask(data, info, settings, id = `${Date.now()}-${Math.ran
     embedThumbnail: data.embedThumbnail ?? settings.embedThumbnail ?? DOWNLOAD_DEFAULTS.embedThumbnail,
     embedMetadata: data.embedMetadata ?? settings.embedMetadata ?? DOWNLOAD_DEFAULTS.embedMetadata,
     embedChapters: data.embedChapters ?? settings.embedChapters,
-    embedSubs: data.embedSubs ?? settings.embedSubs,
+    embedSubs: hasVideo && (data.embedSubs ?? settings.embedSubs),
     subtitleLangs: data.subtitleLangs || settings.subtitleLangs || DOWNLOAD_DEFAULTS.subtitleLangs,
     rateLimit: data.rateLimit ?? settings.rateLimit,
     retries: data.retries || settings.retries || DOWNLOAD_DEFAULTS.retries,
-    fragmentThreads: Number(data.fragmentThreads || settings.fragmentThreads || DOWNLOAD_DEFAULTS.fragmentThreads),
+    fragmentThreads: normalizeFragmentThreads(fragmentThreads),
     queuedAt: new Date().toISOString()
   };
 }
 
 function serializeTaskForQueue(task) {
-  return {
-    id: task.id,
-    url: task.url,
-    urls: task.urls,
-    itemTitles: task.itemTitles,
-    title: task.title,
-    thumbnail: task.thumbnail,
-    folderName: task.folderName,
-    resourceType: task.resourceType,
-    contentModes: task.contentModes,
-    videoQuality: task.videoQuality,
-    audioQuality: task.audioQuality,
-    audioFormat: task.audioFormat,
-    outputDir: task.outputDir,
-    filenameTemplate: task.filenameTemplate,
-    containerFormat: task.containerFormat,
-    embedChapters: task.embedChapters,
-    embedThumbnail: task.embedThumbnail,
-    embedMetadata: task.embedMetadata,
-    embedSubs: task.embedSubs,
-    subtitleLangs: task.subtitleLangs,
-    rateLimit: task.rateLimit,
-    retries: task.retries,
-    fragmentThreads: task.fragmentThreads,
-    queuedAt: new Date().toISOString()
-  };
+  return Object.fromEntries(PERSISTED_TASK_FIELDS.map(field => [field, task[field]]));
 }
 
 module.exports = { createDownloadTask, serializeTaskForQueue };

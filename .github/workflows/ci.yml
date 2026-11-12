@@ -1,0 +1,26 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Fetch and verify bundled tools
+        shell: pwsh
+        run: ./scripts/fetch-tools.ps1
+      - run: npm run check
+      - run: npm test
+      - name: Build unpacked Windows app
+        run: npx --no-install electron-builder --win --dir
+      - name: Verify packaged tool hashes
+        shell: pwsh
+        run: ./scripts/fetch-tools.ps1 -VerifyOnly -ToolsDirectory ./release/win-unpacked/resources/tools

@@ -2,23 +2,27 @@
 
 BiliGo is a focused Windows desktop downloader for Bilibili, powered by Electron, yt-dlp, and ffmpeg.
 
-## 1.2.0
+## 1.4.0
 
-- Added a more complete download queue with persisted tasks and configurable concurrency.
-- Added support for single videos, multi-part videos, collections, and favorites.
-- Added video, audio, cover, subtitle, and danmaku download modes.
-- Added quality, container, filename, rate limit, retry, fragment-thread, and metadata options.
-- Added QR-code login for content that requires an account.
-- Added task history, retry, cancellation, local-file actions, and update checking.
-- Improved validation, partial-file cleanup, progress reporting, and local path safety.
-- Fixed collection URLs that also contain a BV id being treated as a single video.
+- Fixed a login race when signing out and improved recovery for damaged queues and tasks saved by earlier versions.
+- Fixed multi-part danmaku downloads and clarified error messages when a part cannot be downloaded.
+- Kept audio-only attachment options and thread settings consistent, and refined empty states, settings, and dialog keyboard focus.
+- Updated the bundled FFmpeg to the pinned October 2026 month-end build.
+- See [CHANGELOG.md](CHANGELOG.md) for the release history.
+
+## 1.3.0 highlights
+
+- Added persistent download settings and queue recovery after restarting the app.
+- Improved task handling with configurable concurrency, collision-safe file publishing, and cleanup of failed or cancelled downloads.
+- Improved account session handling and collection/favorite parsing, including unavailable favorite items.
+- Added clearer download progress and error reporting, plus safer resource parsing and local file handling.
 
 ## Download
 
-Download the Windows installer or portable executable from the [1.2.0 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.2.0).
+Download either Windows package from the [v1.4.0 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.4.0).
 
-- `BiliGo Setup 1.2.0.exe`: installer with an optional desktop shortcut.
-- `BiliGo-1.2.0-portable.exe`: portable build with no installation step.
+- [BiliGo-Setup-1.4.0.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.0/BiliGo-Setup-1.4.0.exe) installs BiliGo and supports in-app updates.
+- [BiliGo-1.4.0-portable.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.0/BiliGo-1.4.0-portable.exe) runs without installation.
 
 Both packages include the project-provided Windows builds of yt-dlp and ffmpeg. No separate tool installation is required.
 
@@ -28,6 +32,8 @@ Both packages include the project-provided Windows builds of yt-dlp and ffmpeg. 
 npm install
 npm start
 ```
+
+在新检出的 Windows 仓库中，先运行 `pwsh -File scripts/fetch-tools.ps1` 获取并校验 `tools/` 下的两个工具。工具版本和来源见 [tools/README.md](tools/README.md)。
 
 Useful checks:
 
@@ -39,10 +45,13 @@ npm run check
 Build Windows packages:
 
 ```bash
+pwsh -File scripts/fetch-tools.ps1
 npm run dist
 ```
 
 The build output is written to `release/` and is intentionally ignored by Git.
+Windows CI runs the syntax check, tests, an unpacked Electron build, and verifies both bundled tool hashes in that build.
+The 1.4.0 release passed all 130 tests with zero skips.
 
 ## Supported Content
 
@@ -51,7 +60,13 @@ The build output is written to `release/` and is intentionally ignored by Git.
 - Bilibili collections
 - Bilibili favorites, including authenticated favorites
 
+Favorites load all items during parsing; unavailable items are shown but cannot be added to the download queue.
+
 Available download content includes video plus audio, video only, audio only, cover images, subtitles, and danmaku. Audio/video merging and format conversion use the bundled ffmpeg executable.
+
+Downloads are first written under `.biligo-staging` in the selected download directory. Completed files are published into place without overwriting existing files; name collisions receive a numbered suffix. Failed or cancelled tasks clean only their own temporary files. Interrupted tasks are restored from the local queue when the app starts again.
+
+Resource parsing and login sessions live in separate modules. The yt-dlp metadata parser limits combined process output to 8 MiB, and the app checks local file paths and external links before opening them. The sidebar version comes from `package.json` through Electron.
 
 ## Privacy And Local Data
 
@@ -61,7 +76,7 @@ BiliGo does not upload personal settings, cookies, login data, history, or downl
 - Settings and task history are stored locally in the Electron user-data directory.
 - Application logs are stored locally at `bili-go/logs/biligo.log` under the Electron user-data directory.
 - Cookies, settings, history, local data directories, build output, and executables are excluded by `.gitignore`.
-- The repository only contains source code, package metadata, and the explicitly bundled runtime tools.
+- The repository includes a pinned tool manifest. The Windows packages bundle the tool executables.
 
 Review the `.gitignore` and `git status` before committing local changes.
 

@@ -7,7 +7,7 @@ function toolName(name) {
   return platform === 'win32' ? `${name}.exe` : name;
 }
 
-function resolveTool(app, name) {
+function resolveTool(name) {
   const file = toolName(name);
   const candidates = [
     path.join(process.resourcesPath || '', 'tools', file),
@@ -18,4 +18,4 @@ function resolveTool(app, name) {
   return resolved;
 }
 
-module.exports = { resolveTool, toolName };
+module.exports = { resolveTool };
