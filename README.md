@@ -2,13 +2,19 @@
 
 BiliGo is a focused Windows desktop downloader for Bilibili, powered by Electron, yt-dlp, and ffmpeg.
 
-## 1.4.0
+## 1.4.1
+
+- Simplified the download screen and moved the form higher for quicker access.
+- Clarified queue status and kept completion notifications from taking focus away from the current task.
+- Improved assistive technology announcements and honored the system's reduced-motion preference.
+- See [CHANGELOG.md](CHANGELOG.md) for the release history.
+
+## 1.4.0 highlights
 
 - Fixed a login race when signing out and improved recovery for damaged queues and tasks saved by earlier versions.
 - Fixed multi-part danmaku downloads and clarified error messages when a part cannot be downloaded.
 - Kept audio-only attachment options and thread settings consistent, and refined empty states, settings, and dialog keyboard focus.
 - Updated the bundled FFmpeg to the pinned October 2026 month-end build.
-- See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## 1.3.0 highlights
 
@@ -19,10 +25,10 @@ BiliGo is a focused Windows desktop downloader for Bilibili, powered by Electron
 
 ## Download
 
-Download either Windows package from the [v1.4.0 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.4.0).
+Download either Windows package from the [v1.4.1 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.4.1).
 
-- [BiliGo-Setup-1.4.0.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.0/BiliGo-Setup-1.4.0.exe) installs BiliGo and supports in-app updates.
-- [BiliGo-1.4.0-portable.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.0/BiliGo-1.4.0-portable.exe) runs without installation.
+- [BiliGo-Setup-1.4.1.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.1/BiliGo-Setup-1.4.1.exe) installs BiliGo and supports in-app updates.
+- [BiliGo-1.4.1-portable.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.1/BiliGo-1.4.1-portable.exe) runs without installation.
 
 Both packages include the project-provided Windows builds of yt-dlp and ffmpeg. No separate tool installation is required.
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1
+
+- Simplified the download screen by removing the introductory banner and bringing the form closer to the top.
+- Made queue status clearer for waiting, restored, and completed downloads, and kept completion notifications from interrupting the current task.
+- Improved screen-reader announcements, made repeated notifications stay visible for their full duration, and reduced motion when requested by the system.
+
 ## 1.4.0
 
 - Fixed a sign-in and sign-out race that could restore a previous login session after signing out.

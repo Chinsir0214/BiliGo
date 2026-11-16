@@ -51,7 +51,7 @@ const chromeCandidates = [
 ].filter(Boolean);
 const chrome = chromeCandidates.find(existsSync);
 
-test('custom selects, settings and dialogs work through the renderer DOM', { skip: chrome ? false : 'Chrome or Edge unavailable' }, async () => {
+test('renderer DOM supports controls, dialogs, and download feedback', { skip: chrome ? false : 'Chrome or Edge unavailable' }, async () => {
   const srcRoot = resolve(__dirname, '..', 'src');
   const html = readFile(join(srcRoot, 'index.html'), 'utf8').replace(
     '<script src="renderer.js"></script>',
@@ -62,6 +62,8 @@ test('custom selects, settings and dialogs work through the renderer DOM', { ski
       maxConcurrentTasks:8,containerFormat:'mp4',videoQuality:'bv',audioQuality:'ba/b',audioFormat:'original',
       retries:'7',filenameTemplate:'%(title)s.%(ext)s',subtitleLangs:'all',rateLimit:''};
     window.savedChanges = [];
+    const callbacks = new Map();
+    window.emitBili = (channel, payload) => callbacks.get(channel)(payload);
     window.bili = {
       appVersion: async () => '1.3.0',
       loginStatus: async () => ({loggedIn:false, profile:null}),
@@ -73,9 +75,12 @@ test('custom selects, settings and dialogs work through the renderer DOM', { ski
         window.finishReset = () => resolve({...savedSettings, fragmentThreads:3, maxConcurrentTasks:1, retries:'3', downloadDir:'Default/BiliGo'});
       }),
       history: async () => [],
-      listQueue: async () => [],
+      listQueue: async () => [
+        { id:'running', title:'《下载 & "合辑"》', mode:'video', status:'downloading' },
+        { id:'queued', title:'排队任务', mode:'video', status:'queued' }
+      ],
       checkForUpdates: async () => ({hasUpdate:false,currentVersion:'1.3.0'}),
-      on() {}
+      on(channel, callback) { callbacks.set(channel, callback); }
     };
   `;
   const probe = [
@@ -137,7 +142,23 @@ test('custom selects, settings and dialogs work through the renderer DOM', { ski
     "window.finishReset();await settle();",
     "const resetRestored=resetDialog.classList.contains('hidden') && !shell.inert && document.activeElement===resetTrigger && threads.value==='3' && threads.previousElementSibling.querySelector('button').textContent==='3 个' && retries.value==='3';",
     "const directoryUpdated=document.querySelector('#downloadDirText').textContent==='Default/BiliGo' && document.querySelector('#destination').textContent==='保存至 Default/BiliGo';",
-    "output.textContent=JSON.stringify({arrowOpened,escapeClosed,tabClosed,outsideClosed,selectedClosed,qualitySaved,legacyQuality,optionTabStops,controlsLinked,multiSemantics,historyEmptyReused,audioWithExtras,loginFocused,loginWrapsBack,loginWrapsForward,loginDismissed,threadsRestored,retriesRestored,concurrencyRestored,retriesSaved,resetFocused,resetDismissed,resetBusy,resetRestored,directoryUpdated});",
+    "const running=document.querySelector('[data-task=running]');const progress=running.querySelector('progress');",
+    "const queued=document.querySelector('[data-task=queued] progress');",
+    "const progressInitiallyUnknown=progress.position===-1 && !progress.hasAttribute('value') && running.querySelector('.task-percent').textContent==='—';",
+    "const progressNamed=progress.getAttribute('aria-label')==='下载进度：' + running.querySelector('.task-title').textContent;",
+    "const queuedProgressZero=queued.hasAttribute('value') && queued.position===0;",
+    "window.emitBili('download:progress',{id:'running',percent:0});",
+    "const progressReachedZero=progress.hasAttribute('value') && progress.position===0;",
+    "window.emitBili('download:progress',{id:'running',percent:37.5,speed:'1 MB/s',eta:'00:10'});",
+    "const progressUpdated=progress.max===100 && progress.value===37.5 && running.querySelector('.task-percent').textContent==='37.5%' && running.querySelector('.task-info').textContent.includes('00:10');",
+    "const toast=document.querySelector('#toast');window.emitBili('download:done',{id:'running',code:0});",
+    "const completionAnnounced=!running.isConnected && toast.getAttribute('role')==='status' && toast.textContent==='下载完成，已移入任务记录' && document.activeElement===resetTrigger;",
+    "const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));",
+    "window.emitBili('app:error','稍后重试');await delay(300);",
+    "window.emitBili('app:error','稍后重试');await delay(2600);",
+    "const toastKeptLatest=toast.classList.contains('show') && toast.textContent==='稍后重试';",
+    "await delay(350);const toastExpired=!toast.classList.contains('show');",
+    "output.textContent=JSON.stringify({arrowOpened,escapeClosed,tabClosed,outsideClosed,selectedClosed,qualitySaved,legacyQuality,optionTabStops,controlsLinked,multiSemantics,historyEmptyReused,audioWithExtras,loginFocused,loginWrapsBack,loginWrapsForward,loginDismissed,threadsRestored,retriesRestored,concurrencyRestored,retriesSaved,resetFocused,resetDismissed,resetBusy,resetRestored,directoryUpdated,progressInitiallyUnknown,progressNamed,queuedProgressZero,progressReachedZero,progressUpdated,completionAnnounced,toastKeptLatest,toastExpired});",
     "}catch(error){output.textContent=JSON.stringify({error:error.message});}",
     "})();"
   ].join('\n');
@@ -165,7 +186,7 @@ test('custom selects, settings and dialogs work through the renderer DOM', { ski
     const port = server.address().port;
     const { stdout } = await promisify(execFile)(chrome, [
       '--headless=new', '--disable-gpu', '--no-first-run', '--disable-extensions', '--window-size=1200,800',
-      '--user-data-dir=' + profile, '--virtual-time-budget=1000', '--dump-dom',
+      '--user-data-dir=' + profile, '--virtual-time-budget=5000', '--dump-dom',
       'http://127.0.0.1:' + port + '/'
     ], { maxBuffer: 2 * 1024 * 1024, timeout: 15000 });
     const match = stdout.match(/<pre id="select-probe-result">([^<]+)<\/pre>/);
@@ -196,7 +217,15 @@ test('custom selects, settings and dialogs work through the renderer DOM', { ski
       resetDismissed: true,
       resetBusy: true,
       resetRestored: true,
-      directoryUpdated: true
+      directoryUpdated: true,
+      progressInitiallyUnknown: true,
+      progressNamed: true,
+      queuedProgressZero: true,
+      progressReachedZero: true,
+      progressUpdated: true,
+      completionAnnounced: true,
+      toastKeptLatest: true,
+      toastExpired: true
     });
   } finally {
     await new Promise(done => server.close(done));

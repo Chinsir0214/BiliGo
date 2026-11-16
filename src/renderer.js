@@ -33,7 +33,14 @@ const submittedSelectionIndices = new Set();
 const contentModeInputs = [...document.querySelectorAll('.content-modes .content-check input')];
 const labels = { 'video-audio': '视频 + 音频', video: '仅视频', audio: '仅音频', danmaku: '弹幕', subtitle: '字幕', cover: '封面' };
 function modeLabel(value) { return String(value || '').split(',').map(item => labels[item] || item).join('、') || '下载任务'; }
-function toast(message) { const el = $('#toast'); el.textContent = message; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2800); }
+let toastTimer;
+function toast(message) {
+  const element = $('#toast');
+  clearTimeout(toastTimer);
+  element.textContent = message;
+  element.classList.add('show');
+  toastTimer = setTimeout(() => element.classList.remove('show'), 2800);
+}
 async function saveSetting(changes) { try { await window.bili.setSettings(changes); } catch (error) { toast(`设置保存失败：${error.message}`); try { applySettings(await window.bili.getSettings()); } catch (refreshError) { toast(`重新读取设置失败：${refreshError.message}`); } } }
 function text(value) { return String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
 function imageUrl(value) { const url = String(value || '').trim(); return url.startsWith('//') ? `https:${url}` : url.replace(/^http:\/\//i, 'https://'); }
@@ -248,16 +255,19 @@ function renderTask(task) {
   const node = document.createElement('div');
   node.className = 'task';
   node.dataset.task = task.id;
-  const status = task.status === 'downloading' ? '下载中' : '队列中';
-  node.innerHTML = `<div class="task-main"><div class="task-title">${text(task.title)}</div><div class="task-meta">${text(modeLabel(task.mode))}</div><div class="progress-track"><div class="progress-bar" style="width:0%"></div></div></div><div class="task-side"><div class="task-percent">0%</div><div class="task-info">正在准备</div><div class="task-status">${status}</div>${taskActions(task)}</div>`;
+  const downloading = task.status === 'downloading';
+  const status = downloading ? '下载中' : '队列中';
+  const progressValue = downloading ? '' : ' value="0"';
+  const percentLabel = downloading ? '—' : '0%';
+  node.innerHTML = `<div class="task-main"><div class="task-title">${text(task.title)}</div><div class="task-meta">${text(modeLabel(task.mode))}</div><progress class="progress-track" max="100" aria-label="下载进度：${text(task.title)}"${progressValue}></progress></div><div class="task-side"><div class="task-percent">${percentLabel}</div><div class="task-info">正在准备</div><div class="task-status">${status}</div>${taskActions(task)}</div>`;
   list.prepend(node);
   tasks.set(task.id, node);
   bindActions(node);
   return node;
 }
 function renderTaskProgress(node, data) {
-  const percent = data.percent ?? 0;
-  node.querySelector('.progress-bar').style.width = `${percent}%`;
+  const percent = data.percent;
+  node.querySelector('.progress-track').value = percent;
   node.querySelector('.task-percent').textContent = `${percent.toFixed(1)}%`;
   node.querySelector('.task-info').textContent = [data.speed, data.eta && `剩余 ${data.eta}`].filter(Boolean).join('  ·  ') || '正在读取视频流';
   node.querySelector('.task-status').textContent = '下载中';

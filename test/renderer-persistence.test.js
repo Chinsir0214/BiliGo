@@ -268,6 +268,7 @@ test('restoration skips terminal tasks, keeps the latest completion, and applies
   const [queued, running] = ui.taskList.children;
   assert.equal(queued.querySelector('.task-status').textContent, '队列中');
   assert.equal(running.querySelector('.task-status').textContent, '下载中');
+  assert.equal(running.querySelector('.progress-track').value, 32);
   assert.equal(running.querySelector('.task-percent').textContent, '32.0%');
   const button = queued.querySelector('[data-cancel-task]');
   await button.handlers.click({ currentTarget: button });
