@@ -32,7 +32,7 @@ components:
 
 BiliGo is a Chinese-language Windows desktop tool for choosing Bilibili media and saving it locally. Its main job is to make a link, download options, parsed items, and task status readable in one workflow. The existing interface uses a dark navigation rail against a light work surface, compact mono labels, and restrained borders. The resource title and selected items, not decoration, carry the emphasis.
 
-This file mirrors the accepted runtime values in `src/styles.css`; CSS remains the token owner. `colors.ink`, `colors.action`, `colors.background`, `colors.border`, and `colors.muted` correspond to `--ink`, `--accent`, the root/body background, `--line`, and `--muted`. Shared buttons, cards, and selection lists consume these values or existing CSS declarations. No generated theme adapter is in use.
+`src/styles.css` owns the runtime tokens, application shell, dialogs, and toast. `src/styles/controls.css` owns reusable form controls and actions, and `src/styles/views.css` owns the download, history, and settings layouts. The palette above maps to `--ink`, `--accent`, `--canvas`, `--surface`, `--line`, and `--muted` in that order.
 
 ## Layout and type
 

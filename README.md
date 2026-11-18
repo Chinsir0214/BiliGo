@@ -2,12 +2,18 @@
 
 BiliGo is a focused Windows desktop downloader for Bilibili, powered by Electron, yt-dlp, and ffmpeg.
 
-## 1.4.1
+## 1.4.2
+
+- Unified the look of the download center, task history, and settings with consistent buttons, form controls, and status indicators.
+- Improved how download options, item lists, and task actions fit in smaller windows.
+- Made keyboard focus easier to see, improved screen-reader labels, and hid broken cover and avatar images.
+- See [CHANGELOG.md](CHANGELOG.md) for the release history.
+
+## 1.4.1 highlights
 
 - Simplified the download screen and moved the form higher for quicker access.
 - Clarified queue status and kept completion notifications from taking focus away from the current task.
 - Improved assistive technology announcements and honored the system's reduced-motion preference.
-- See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## 1.4.0 highlights
 
@@ -25,10 +31,10 @@ BiliGo is a focused Windows desktop downloader for Bilibili, powered by Electron
 
 ## Download
 
-Download either Windows package from the [v1.4.1 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.4.1).
+Download either Windows package from the [v1.4.2 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.4.2).
 
-- [BiliGo-Setup-1.4.1.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.1/BiliGo-Setup-1.4.1.exe) installs BiliGo and supports in-app updates.
-- [BiliGo-1.4.1-portable.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.1/BiliGo-1.4.1-portable.exe) runs without installation.
+- [BiliGo-Setup-1.4.2.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.2/BiliGo-Setup-1.4.2.exe) installs BiliGo and includes an in-app update check.
+- [BiliGo-1.4.2-portable.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.2/BiliGo-1.4.2-portable.exe) runs without installation.
 
 Both packages include the project-provided Windows builds of yt-dlp and ffmpeg. No separate tool installation is required.
 
@@ -57,7 +63,6 @@ npm run dist
 
 The build output is written to `release/` and is intentionally ignored by Git.
 Windows CI runs the syntax check, tests, an unpacked Electron build, and verifies both bundled tool hashes in that build.
-The 1.4.0 release passed all 130 tests with zero skips.
 
 ## Supported Content
 

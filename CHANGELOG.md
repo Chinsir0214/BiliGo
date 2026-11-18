@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.2
+
+- Unified the look of the download center, task history, and settings with consistent buttons, form controls, and status indicators.
+- Improved how download options, item lists, and task actions fit in smaller windows.
+- Made keyboard focus easier to see, improved screen-reader labels, and hid broken cover and avatar images.
+
 ## 1.4.1
 
 - Simplified the download screen by removing the introductory banner and bringing the form closer to the top.

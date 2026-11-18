@@ -47,6 +47,17 @@ function imageUrl(value) { const url = String(value || '').trim(); return url.st
 function duration(value) { const seconds = Math.max(0, Math.round(Number(value) || 0)); const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); const rest = String(seconds % 60).padStart(2, '0'); return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`; }
 function fileSize(value) { const bytes = Number(value) || 0; if (bytes < 1024) return `${bytes} B`; if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`; if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`; return `${(bytes / 1073741824).toFixed(2)} GB`; }
 
+function setOptionalImage(image, source) {
+  const url = imageUrl(source);
+  image.hidden = !url;
+  if (url) {
+    image.onerror = () => { image.hidden = true; };
+    image.src = url;
+  } else {
+    image.removeAttribute('src');
+  }
+}
+
 let customSelectId = 0;
 function closeCustomSelects(except) {
   document.querySelectorAll('.custom-select.open').forEach(wrapper => {
@@ -148,8 +159,6 @@ function setupCustomSelects() {
   });
   document.addEventListener('click', event => { if (!event.target.closest('.custom-select')) closeCustomSelects(); });
 }
-function syncCheck(input) { input.closest('.content-check')?.classList.toggle('checked', input.checked); }
-
 function subtitlePicker() {
   const label = $('#subtitlePicker');
   const control = initCustomSelect(label.querySelector('.custom-select'), { multiple: true, emptyLabel: '未选择字幕' });
@@ -182,11 +191,16 @@ function setupContentChecks() {
   }));
 }
 function selectedContentModes() { return contentModeInputs.filter(input => input.checked).map(input => input.value); }
-function setDownloadOptionDisabled(id, disabled) { const input = $(`#${id}`); const label = input?.closest('label'); const wrapper = input?.previousElementSibling?.classList.contains('custom-select') ? input.previousElementSibling : null; if (!input || !label) return; input.disabled = disabled; label.classList.toggle('disabled', disabled); if (wrapper) wrapper.querySelector('.custom-select-button').disabled = disabled; }
+function setDownloadOptionDisabled(id, disabled) {
+  const input = $(`#${id}`);
+  if (!input) return;
+  input.disabled = disabled;
+  const trigger = input.previousElementSibling?.querySelector('.custom-select-button');
+  if (trigger) trigger.disabled = disabled;
+}
 function syncDerivedUi() {
   const modes = selectedContentModes();
   const { hasVideo, hasMedia, mediaMode } = getMediaCapabilities(modes);
-  document.querySelectorAll('.content-check input').forEach(syncCheck);
   setDownloadOptionDisabled('embedSubs', !hasVideo);
   setDownloadOptionDisabled('audioFormat', mediaMode !== 'audio');
   setDownloadOptionDisabled('containerFormat', mediaMode !== 'video-audio');
@@ -382,7 +396,19 @@ function closeLogin() {
   closeModal(loginModal);
   window.bili.cancelLogin().catch(error => toast(`取消登录失败：${error.message}`));
 }
-function applyProfile(profile, loggedIn = Boolean(profile)) { const avatar = $('#accountAvatar'); if (profile?.avatar) { avatar.src = imageUrl(profile.avatar); avatar.style.display = 'block'; } else { avatar.removeAttribute('src'); avatar.style.display = 'none'; } const accountName = profile?.name || (loggedIn ? '已登录' : '未登录'); $('#accountText').textContent = accountName; $('#loginSmall').disabled = false; $('#loginSmall').textContent = loggedIn ? '退出' : '登录'; $('#loginBtn').disabled = false; $('#loginBtn').classList.toggle('primary-button', !loggedIn); $('#loginBtn').classList.toggle('ghost-button', loggedIn); $('#loginBtn').classList.add('small'); $('#loginBtn').textContent = loggedIn ? '退出账号' : '扫码登录'; $('#settingLogin').textContent = loggedIn ? `已登录${profile?.name ? `：${profile.name}` : ''}` : '尚未使用扫码登录。'; }
+function applyProfile(profile, loggedIn = Boolean(profile)) {
+  setOptionalImage($('#accountAvatar'), profile?.avatar);
+  $('#accountText').textContent = profile?.name || (loggedIn ? '已登录' : '未登录');
+  const sidebarLogin = $('#loginSmall');
+  sidebarLogin.disabled = false;
+  sidebarLogin.textContent = loggedIn ? '退出' : '登录';
+  const settingsLogin = $('#loginBtn');
+  settingsLogin.disabled = false;
+  settingsLogin.classList.toggle('primary-button', !loggedIn);
+  settingsLogin.classList.toggle('ghost-button', loggedIn);
+  settingsLogin.textContent = loggedIn ? '退出账号' : '扫码登录';
+  $('#settingLogin').textContent = loggedIn ? `已登录${profile?.name ? `：${profile.name}` : ''}` : '尚未使用扫码登录。';
+}
 async function beginLogin(trigger) {
   if (!openModal(loginModal, trigger, $('#closeModal'), closeLogin)) return;
   const request = loginRequest = Symbol('loginRequest');
@@ -447,7 +473,7 @@ $('#confirmResetSettings').addEventListener('click', async event => {
   }
 });
 function isUnavailableItem(item) { return item.unavailable === true || (parsedResource?.type === 'favorite' && !item.url); }
-function appendSelectionItems(items, offset = 0) { $('#selectionList').insertAdjacentHTML('beforeend', items.map((item, index) => { const unavailable = isUnavailableItem(item); return `<label class="selection-item${unavailable ? ' unavailable' : ''}"><input type="checkbox" data-index="${offset + index}"${unavailable ? ' disabled' : ' checked'}><img class="selection-item-cover" src="${text(imageUrl(item.thumbnail || parsedResource.thumbnail || ''))}" alt=""><span class="selection-item-title">${text(item.title)}${unavailable ? ' <em>已失效</em>' : ''}</span><span class="selection-item-duration">${duration(item.duration)}</span></label>`; }).join('')); $('#selectionList').querySelectorAll('img:not([data-bound])').forEach(image => { image.dataset.bound = 'true'; image.addEventListener('error', () => { image.style.visibility = 'hidden'; }); }); }
+function appendSelectionItems(items, offset = 0) { $('#selectionList').insertAdjacentHTML('beforeend', items.map((item, index) => { const unavailable = isUnavailableItem(item); return `<label class="selection-item${unavailable ? ' unavailable' : ''}"><input type="checkbox" data-index="${offset + index}"${unavailable ? ' disabled' : ' checked'}><img class="selection-item-cover" src="${text(imageUrl(item.thumbnail || parsedResource.thumbnail || ''))}" alt=""><span class="selection-item-title">${text(item.title)}${unavailable ? ' <em>已失效</em>' : ''}</span><span class="selection-item-duration">${duration(item.duration)}</span></label>`; }).join('')); $('#selectionList').querySelectorAll('img:not([data-bound])').forEach(image => { image.dataset.bound = 'true'; image.addEventListener('error', () => image.classList.add('image-unavailable')); }); }
 function updateSelectionTitle() { if (!parsedResource) return; const loaded = parsedResource.items.length; const unavailable = parsedResource.items.filter(isUnavailableItem).length; const available = loaded - unavailable; const total = Number(parsedResource.total); const count = Number.isFinite(total) && total > 0 && loaded !== total ? `已加载 ${loaded} 项（平台标称 ${total} 项）` : `共 ${loaded} 项`; $('#selectionTitle').textContent = parsedResource.title; $('#selectionSummary').textContent = `${count} · 可用 ${available} 项 · 已失效 ${unavailable} 项`; }
 
 function syncSelectionSubmitUi() {
@@ -467,10 +493,7 @@ function renderSelection(resource, sourceUrl) {
   const subtitleOptions = [...new Map(resource.items.flatMap(item => item.subtitleLanguages || []).map(item => [item.value, item])).values()];
   subtitlePickerControl.refresh(subtitleOptions);
   updateSelectionTitle();
-  const cover = $('#selectionCover');
-  const coverUrl = imageUrl(resource.thumbnail);
-  if (coverUrl) { cover.src = coverUrl; cover.style.display = 'block'; cover.onerror = () => { cover.style.display = 'none'; }; }
-  else { cover.removeAttribute('src'); cover.style.display = 'none'; }
+  setOptionalImage($('#selectionCover'), resource.thumbnail);
   $('#selectionList').innerHTML = '';
   appendSelectionItems(parsedResource.items);
   $('#selectionPanel').classList.remove('hidden');

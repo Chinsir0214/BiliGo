@@ -1,6 +1,6 @@
 {
   "name": "bili-go",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "A focused Bilibili downloader powered by yt-dlp and ffmpeg.",
   "main": "src/main.js",
   "scripts": {
