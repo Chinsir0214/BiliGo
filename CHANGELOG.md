@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.4
+
+- Unified Chinese and Latin text across the Windows interface with Microsoft YaHei UI, falling back to Microsoft YaHei or the system sans-serif. Download percentages, speeds, remaining times, and media durations use tabular digits for easier comparison.
+- Replaced the icon font with nine bundled Microsoft Fluent Regular SVGs for navigation, actions, empty states, and form controls. The icons work offline and support Windows high-contrast mode. Bundled icon resources are about 860 KiB smaller.
+
 ## 1.4.3
 
 - Opened the download center sooner by loading history and settings controls on demand and checking for updates after the first screen appears.

@@ -1,3 +1,7 @@
+:where(button, input, select, option, textarea) {
+  font-family: inherit;
+}
+
 .primary-button,
 .ghost-button,
 .icon-button {
@@ -13,7 +17,8 @@
   padding: 0 17px;
   border: 1px solid var(--accent);
   border-radius: var(--radius-control);
-  font: 600 12px var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -43,12 +48,6 @@
   font-size: 11px;
 }
 
-:is(.primary-button, .ghost-button) .material-symbols-rounded {
-  display: inline-flex;
-  align-items: center;
-  height: 1em;
-}
-
 .icon-button,
 .text-button,
 .modal-close {
@@ -60,7 +59,7 @@
 .icon-button {
   padding: 0;
   color: #777;
-  font: 10px var(--font-ui);
+  font-size: 10px;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -71,12 +70,16 @@
 
 .text-button {
   color: #aaa;
-  font: 11px var(--font-ui);
+  font-size: 11px;
 }
 
 .modal-close {
-  color: #999;
-  font-size: 25px;
+  --icon-size: 20px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: #666;
 }
 
 button:disabled {
@@ -127,7 +130,8 @@ select,
   border-radius: var(--radius-option);
   background: var(--surface);
   color: var(--ink);
-  font: 600 12px var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .url-row > input,
@@ -168,14 +172,11 @@ select,
   box-shadow: 0 1px 0 rgb(20 20 20 / 2%);
 }
 
-select,
-.custom-select-button::after {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m2 4 4 4 4-4' fill='none' stroke='%23888' stroke-width='1.4'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-}
-
 select {
   appearance: none;
+  background-image: url("../assets/fluent/chevron-down.svg");
+  background-size: 12px;
+  background-repeat: no-repeat;
   background-position: right 12px center;
   color-scheme: light;
 }
@@ -183,7 +184,8 @@ select {
 select option {
   background: var(--surface);
   color: var(--ink);
-  font: 12px var(--font-ui);
+  font-size: 12px;
+  font-weight: 400;
 }
 
 :is(select, .custom-select-button):enabled:hover {
@@ -207,6 +209,9 @@ select option {
   width: 12px;
   height: 12px;
   content: "";
+  background-color: currentColor;
+  mask: url("../assets/fluent/chevron-down.svg") center / contain no-repeat;
+  forced-color-adjust: preserve-parent-color;
   translate: 0 -50%;
   transition: rotate .16s ease;
 }
@@ -247,7 +252,8 @@ select option {
   background: transparent;
   color: #444;
   text-align: left;
-  font: 500 12px var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -341,22 +347,40 @@ select:disabled,
 .content-check:has(input:checked) .check-box {
   border-color: var(--accent);
   background: var(--accent);
+  color: var(--surface);
 }
 
 .content-check:has(input:checked) .check-box::after {
   position: absolute;
-  top: 0;
-  left: 3px;
-  width: 3px;
-  height: 7px;
-  border: solid var(--surface);
-  border-width: 0 1.5px 1.5px 0;
+  inset: 0;
   content: "";
-  transform: rotate(45deg);
+  background-color: currentColor;
+  mask: url("../assets/fluent/checkmark.svg") center / contain no-repeat;
 }
 
 .content-check:has(input:disabled) .check-box {
   background: var(--soft);
+  color: var(--muted);
+}
+
+@media (forced-colors: active) {
+  select {
+    appearance: auto;
+    background-image: none;
+  }
+
+  .content-check:has(input:checked) .check-box {
+    forced-color-adjust: none;
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .content-check:has(input:disabled:checked) .check-box {
+    border-color: GrayText;
+    background: Canvas;
+    color: GrayText;
+  }
 }
 
 .switch {

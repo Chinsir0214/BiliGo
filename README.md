@@ -2,12 +2,17 @@
 
 BiliGo is a focused Windows desktop downloader for Bilibili, powered by Electron, yt-dlp, and ffmpeg.
 
-## 1.4.3
+## 1.4.4
+
+- The download center, history, settings, and dialogs now share a Windows UI font. Digits stay aligned as download progress and speed change.
+- Navigation and controls use locally bundled Microsoft Fluent Regular icons, including in high-contrast mode.
+- See [CHANGELOG.md](CHANGELOG.md) for the release history.
+
+## 1.4.3 highlights
 
 - The download center opens sooner, especially when many tasks are saved in history.
 - Large danmaku downloads and output file copies run in the background, keeping the interface responsive.
 - The download center groups progress updates by frame and pauses rendering them while another view is open.
-- See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## 1.4.2 highlights
 
@@ -37,10 +42,10 @@ BiliGo is a focused Windows desktop downloader for Bilibili, powered by Electron
 
 ## Download
 
-Download either Windows package from the [v1.4.3 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.4.3).
+Download either Windows package from the [v1.4.4 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.4.4).
 
-- [BiliGo-Setup-1.4.3.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.3/BiliGo-Setup-1.4.3.exe) installs BiliGo and includes an in-app update check.
-- [BiliGo-1.4.3-portable.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.3/BiliGo-1.4.3-portable.exe) runs without installation.
+- [BiliGo-Setup-1.4.4.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.4/BiliGo-Setup-1.4.4.exe) installs BiliGo and includes an in-app update check.
+- [BiliGo-1.4.4-portable.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.4/BiliGo-1.4.4-portable.exe) runs without installation.
 
 Both packages include the project-provided Windows builds of yt-dlp and ffmpeg. No separate tool installation is required.
 

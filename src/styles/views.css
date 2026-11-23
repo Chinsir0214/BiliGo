@@ -39,7 +39,8 @@
   gap: 16px;
   margin-top: 12px;
   color: #767670;
-  font: 11px/1.5 var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .input-foot > :last-child {
@@ -94,10 +95,9 @@
   font-size: 11px;
 }
 
-.empty-icon.material-symbols-rounded {
+.empty-icon {
+  --icon-size: 30px;
   margin-bottom: 4px;
-  color: #bbb;
-  font-size: 30px;
 }
 
 .task,
@@ -159,7 +159,7 @@
   display: block;
   margin-top: 7px;
   color: var(--muted);
-  font: 10px var(--font-mono);
+  font-size: 10px;
 }
 
 .task-side {
@@ -167,11 +167,14 @@
 }
 
 .task-percent {
-  font: 700 18px var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .task-info {
   margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .task-status {
@@ -397,7 +400,8 @@
 
 .selection-summary,
 .selection-notice {
-  font: 11px/1.5 var(--font-ui);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .selection-summary {
@@ -425,7 +429,7 @@
   overflow: hidden;
   border-inline: 1px solid transparent;
   color: var(--muted);
-  font: 10px var(--font-mono);
+  font-size: 10px;
 }
 
 .selection-columns > :last-child,
@@ -478,7 +482,8 @@
 
 .selection-item-duration {
   color: var(--muted);
-  font: 11px var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .selection-item-title em {

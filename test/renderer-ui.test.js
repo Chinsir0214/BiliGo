@@ -75,6 +75,7 @@ test('renderer DOM supports controls, dialogs, and download feedback', { skip: c
         window.finishReset = () => resolve({...savedSettings, fragmentThreads:3, maxConcurrentTasks:1, retries:'3', downloadDir:'Default/BiliGo'});
       }),
       history: async () => { window.historyReads = (window.historyReads || 0) + 1; return []; },
+      parseResource: async () => ({ title: '测试资源', type: 'video', items: [] }),
       listQueue: async () => [
         { id:'running', title:'《下载 & "合辑"》', mode:'video', status:'downloading' },
         { id:'queued', title:'排队任务', mode:'video', status:'queued' }
@@ -167,7 +168,11 @@ test('renderer DOM supports controls, dialogs, and download feedback', { skip: c
     "window.emitBili('app:error','稍后重试');await delay(2600);",
     "const toastKeptLatest=toast.classList.contains('show') && toast.textContent==='稍后重试';",
     "await delay(350);const toastExpired=!toast.classList.contains('show');",
-    "output.textContent=JSON.stringify({arrowOpened,escapeClosed,tabClosed,outsideClosed,selectedClosed,qualitySaved,legacyQuality,optionTabStops,controlsLinked,multiSemantics,historyDeferred,settingsMenusDeferred,historyEmptyReused,audioWithExtras,formatTriggerEnabled,loginFocused,loginWrapsBack,loginWrapsForward,loginDismissed,threadsRestored,retriesRestored,concurrencyRestored,retriesSaved,resetFocused,resetDismissed,resetBusy,resetRestored,directoryUpdated,progressInitiallyUnknown,progressNamed,queuedProgressZero,hiddenProgressDeferred,progressReachedZero,progressUpdated,completionAnnounced,toastKeptLatest,toastExpired});",
+    "const parseButton=document.querySelector('#parseBtn');const parseIcon=parseButton.querySelector('[aria-hidden=true]');",
+    "document.querySelector('#urlInput').value='https://www.bilibili.com/video/BVtest';parseButton.click();",
+    "const iconWhileLoading=Boolean(parseIcon && parseIcon.isConnected && !parseIcon.textContent.trim() && parseButton.disabled && parseButton.textContent.trim()==='正在加载全部内容…');",
+    "await settle();const parseIconRestored=parseIcon?.parentElement===parseButton && parseButton.textContent.trim()==='解析内容';",
+    "output.textContent=JSON.stringify({arrowOpened,escapeClosed,tabClosed,outsideClosed,selectedClosed,qualitySaved,legacyQuality,optionTabStops,controlsLinked,multiSemantics,historyDeferred,settingsMenusDeferred,historyEmptyReused,audioWithExtras,formatTriggerEnabled,loginFocused,loginWrapsBack,loginWrapsForward,loginDismissed,threadsRestored,retriesRestored,concurrencyRestored,retriesSaved,resetFocused,resetDismissed,resetBusy,resetRestored,directoryUpdated,progressInitiallyUnknown,progressNamed,queuedProgressZero,hiddenProgressDeferred,progressReachedZero,progressUpdated,completionAnnounced,toastKeptLatest,toastExpired,iconWhileLoading,parseIconRestored});",
     "}catch(error){output.textContent=JSON.stringify({error:error.message});}",
     "})();"
   ].join('\n');
@@ -183,7 +188,7 @@ test('renderer DOM supports controls, dialogs, and download feedback', { skip: c
     if (!file.startsWith(srcRoot + sep)) { response.writeHead(404).end(); return; }
     try {
       const body = readFile(file);
-      response.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'application/octet-stream');
+      response.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.svg') ? 'image/svg+xml' : 'application/octet-stream');
       response.end(body);
     } catch {
       response.writeHead(404).end();
@@ -238,7 +243,9 @@ test('renderer DOM supports controls, dialogs, and download feedback', { skip: c
       progressUpdated: true,
       completionAnnounced: true,
       toastKeptLatest: true,
-      toastExpired: true
+      toastExpired: true,
+      iconWhileLoading: true,
+      parseIconRestored: true
     });
   } finally {
     await new Promise(done => server.close(done));

@@ -1,7 +1,6 @@
 /* Shared tokens and application shell */
 :root {
-  --font-ui: Manrope, "Microsoft YaHei", sans-serif;
-  --font-mono: "DM Mono", monospace;
+  --font-ui: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
 
   --ink: #191919;
   --muted: #888;
@@ -43,25 +42,24 @@ body {
   visibility: hidden;
 }
 
-@font-face {
-  font-family: "Material Symbols Rounded";
-  font-style: normal;
-  font-weight: 400;
-  src: url("./assets/material-symbols-rounded.woff2") format("woff2");
+[data-icon] {
+  display: inline-block;
+  flex: none;
+  width: var(--icon-size, 16px);
+  height: var(--icon-size, 16px);
+  background-color: currentColor;
+  mask: var(--icon-image) center / contain no-repeat;
+  forced-color-adjust: preserve-parent-color;
+  vertical-align: middle;
 }
 
-.material-symbols-rounded {
-  display: inline-block;
-  font: normal 400 1.25em/1 "Material Symbols Rounded";
-  font-feature-settings: "liga";
-  letter-spacing: normal;
-  text-transform: none;
-  white-space: nowrap;
-  overflow-wrap: normal;
-  direction: ltr;
-  vertical-align: middle;
-  -webkit-font-smoothing: antialiased;
-}
+[data-icon="download"]   { --icon-image: url("./assets/fluent/download.svg"); }
+[data-icon="history"]    { --icon-image: url("./assets/fluent/history.svg"); }
+[data-icon="settings"]   { --icon-image: url("./assets/fluent/settings.svg"); }
+[data-icon="search"]     { --icon-image: url("./assets/fluent/search.svg"); }
+[data-icon="select-all"] { --icon-image: url("./assets/fluent/select-all.svg"); }
+[data-icon="delete"]     { --icon-image: url("./assets/fluent/delete.svg"); }
+[data-icon="dismiss"]    { --icon-image: url("./assets/fluent/dismiss.svg"); }
 
 .app-shell {
   display: flex;
@@ -109,13 +107,16 @@ body {
   width: 100%;
   margin: 13px 0 42px;
   color: #747474;
-  font: 8px var(--font-mono);
+  font-size: 8px;
+  font-weight: 400;
   letter-spacing: 1.4px;
 }
 
 .nav-item {
+  --icon-size: 20px;
   display: flex;
   align-items: center;
+  gap: 9px;
   width: 100%;
   margin: 2px 0;
   padding: 13px 12px;
@@ -123,14 +124,10 @@ body {
   border-radius: 7px;
   background: transparent;
   color: #858585;
-  font: 600 13px var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
-}
-
-.nav-item .material-symbols-rounded {
-  flex: 0 0 29px;
-  font-size: 20px;
 }
 
 .nav-item:hover,
@@ -146,7 +143,7 @@ body {
 .account-label,
 .version {
   color: #666;
-  font: 10px var(--font-mono);
+  font-size: 10px;
   letter-spacing: .5px;
 }
 
@@ -227,7 +224,8 @@ body {
 .section-index,
 .settings-section-title {
   color: #999;
-  font: 500 10px var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
   letter-spacing: 1.4px;
 }
 
@@ -278,12 +276,9 @@ body {
   }
 
   .nav-item {
+    gap: 0;
     padding: 12px 8px;
     text-align: center;
-  }
-
-  .nav-item .material-symbols-rounded {
-    font-size: 21px;
   }
 
   .account-label,
@@ -387,7 +382,7 @@ body {
 .login-hint {
   margin-bottom: 16px;
   color: #777;
-  font: 11px var(--font-mono);
+  font-size: 11px;
 }
 
 .confirm-modal .modal-copy {
