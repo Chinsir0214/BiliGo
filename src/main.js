@@ -3,8 +3,6 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const { spawn } = require('child_process');
-const QRCode = require('qrcode');
-const { autoUpdater } = require('electron-updater');
 const tools = require('./tools');
 const { DOWNLOAD_DEFAULTS } = require('./download/constants');
 const { ytdlpDownloadArgs, audioFormatArgs } = require('./download/formats');
@@ -41,17 +39,17 @@ let win;
 let rendererReady = false;
 const pendingAppErrors = new Set();
 let queueLoaded = false;
+let startupRestorePending = true;
+const publishingTasks = new Set();
+let quitting = false;
 let maxConcurrentTasks = DOWNLOAD_DEFAULTS.maxConcurrentTasks;
-// Users review and install releases from the project page.
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = false;
 
 function ensureDataDir() { fs.mkdirSync(dataDir, { recursive: true }); }
 function ensureLogDir() { fs.mkdirSync(logDir, { recursive: true }); }
 function log(level, message) { try { ensureLogDir(); fs.appendFileSync(logFile, `${new Date().toISOString()} [${level}] ${message}\n`, 'utf8'); } catch (_) {} }
 function requestJson(url, options = {}) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0', ...(options.headers || {}) } }, res => {
+    const req = https.get(url, { signal: options.signal, headers: { 'User-Agent': 'Mozilla/5.0', ...(options.headers || {}) } }, res => {
       let body = '';
       let size = 0;
       res.on('data', chunk => { size += chunk.length; if (size > MAX_JSON_BYTES) { req.destroy(new Error('响应内容过大')); return; } body += chunk; });
@@ -66,7 +64,10 @@ function reportAppError(message) {
   if (rendererReady) send('app:error', message);
   else pendingAppErrors.add(message);
 }
-const { cookieHeader, pushCookieArgs, getProfile, createLogin, cancelLogin, logout, shutdown } = createAuthSession({ cookieFile, profileFile, requestJson, resolveLoginCookies, send, log, QRCode });
+const { cookieHeader, pushCookieArgs, getProfile, createLogin, cancelLogin, logout, shutdown } = createAuthSession({
+  cookieFile, profileFile, requestJson, resolveLoginCookies, send, log,
+  QRCode: { create: (...args) => require('qrcode').create(...args) }
+});
 const localData = createLocalDataReader();
 function readLocalData(read, file) {
   try { return read(file); }
@@ -93,7 +94,17 @@ async function playerSubtitleLanguages(bvid, cid) {
     return subtitleLanguages(result.data?.subtitle?.subtitles || result.data?.subtitle?.list);
   } catch (_) { return []; }
 }
-const checkForUpdates = createUpdateChecker({ getCurrentVersion: () => app.getVersion(), checkForUpdates: () => autoUpdater.checkForUpdates(), requestJson });
+const checkForUpdates = createUpdateChecker({
+  getCurrentVersion: () => app.getVersion(),
+  checkForUpdates: () => {
+    const { autoUpdater } = require('electron-updater');
+    // Users review and install releases from the project page.
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+    return autoUpdater.checkForUpdates();
+  },
+  requestJson
+});
 function safeName(value) {
   const name = String(value || '未命名资源').replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim().replace(/[. ]+$/g, '');
   if (!name || name.toLowerCase() === '.biligo-staging') return '未命名资源';
@@ -176,6 +187,7 @@ function ensureQueueLoaded() {
   queueLoaded = true;
 }
 async function download(request) {
+  if (quitting) throw new Error('应用正在退出');
   const data = validateDownloadData(request, { assertBilibiliUrl, isAllowedLocalPath });
   ensureQueueLoaded();
   ensureDataDir();
@@ -207,7 +219,13 @@ async function runDownloadTask(task) {
     const common = ytdlpDownloadArgs(task, modes, () => tools.resolveTool('ffmpeg'));
     const output = path.join(workspace.stageDir, safeTemplate(task.filenameTemplate));
 
-    if (modes.includes('danmaku')) for (let index = 0; index < downloadUrls.length; index += 1) { throwIfCancelled(task); await downloadDanmaku(downloadUrls[index], task.itemTitles?.[index] || task.title, workspace.stageDir); }
+    if (modes.includes('danmaku')) {
+      task.danmakuController = new AbortController();
+      for (let index = 0; index < downloadUrls.length; index += 1) {
+        throwIfCancelled(task);
+        await downloadDanmaku(downloadUrls[index], task.itemTitles?.[index] || task.title, workspace.stageDir, task.danmakuController.signal);
+      }
+    }
     throwIfCancelled(task);
     if (hasMedia) {
       const args = [...common];
@@ -228,7 +246,8 @@ async function runDownloadTask(task) {
     }
     throwIfCancelled(task);
 
-    const files = workspace.commit(destination);
+    publishingTasks.add(task);
+    const files = await workspace.commit(destination);
     task.finalized = true;
     try { downloadManager.save(); } catch (error) { log('error', `保存队列状态失败 ${task.id}: ${error.message}`); }
     const record = downloadRecord(task, destination, modes, 'completed', startedAt, files);
@@ -240,11 +259,16 @@ async function runDownloadTask(task) {
     if (task.interrupted) return;
     const status = task.cancelled ? 'cancelled' : 'failed';
     const record = downloadRecord(task, destination, modes, status, startedAt, error.committedFiles || [], error.message);
+    if (publishingTasks.has(task)) task.finalized = true;
     saveDownloadRecord(record);
     log('error', `下载任务${task.cancelled ? '取消' : '失败'} ${task.id}: ${task.title} - ${error.message}`);
     send('download:done', { id: task.id, code: task.cancelled ? 2 : 1, record });
   } finally {
     task.process = null;
+    delete task.danmakuController;
+    if (publishingTasks.delete(task) && quitting && publishingTasks.size === 0) {
+      app.quit();
+    }
   }
 }
 
@@ -259,6 +283,16 @@ function createWindow() {
     rendererReady = true;
     for (const message of pendingAppErrors) send('app:error', message);
     pendingAppErrors.clear();
+    if (startupRestorePending) {
+      startupRestorePending = false;
+      try {
+        ensureQueueLoaded();
+        downloadManager.pump();
+      } catch (error) {
+        log('error', `恢复下载队列失败：${error.message}`);
+        reportAppError(`恢复下载队列失败：${error.message}。请修复后重新启动应用`);
+      }
+    }
   });
   win.loadFile(path.join(__dirname, 'index.html'));
 }
@@ -270,23 +304,26 @@ app.whenReady().then(async () => {
     headers['User-Agent'] = headers['User-Agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
     callback({ requestHeaders: headers });
   });
-  try {
-    ensureDataDir();
-    ensureQueueLoaded();
-    downloadManager.pump();
-  } catch (error) {
-    log('error', `恢复下载队列失败：${error.message}`);
-    reportAppError(`恢复下载队列失败：${error.message}。请修复后重新启动应用`);
-  }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('before-quit', () => {
-  shutdown();
-  for (const task of downloadManager.activeTasks.values()) if (!task.finalized) task.interrupted = true;
-  if (queueLoaded) {
-    try { downloadManager.requeueActive(downloadExecutor.stop); }
-    catch (error) { log('error', `退出时保存下载队列失败：${error.message}`); }
+app.on('before-quit', event => {
+  startupRestorePending = false;
+  try {
+    if (!quitting) {
+      quitting = true;
+      shutdown();
+      if (queueLoaded) downloadManager.requeueActive(task => {
+        task.interrupted = true;
+        return downloadExecutor.stop(task);
+      }, task => publishingTasks.has(task));
+    } else if (queueLoaded && !publishingTasks.size) {
+      downloadManager.save();
+    }
+  } catch (error) {
+    log('error', `退出时保存下载队列失败：${error.message}`);
   }
+  // Publishing tasks must finish recording their outputs before the process exits.
+  if (publishingTasks.size) event.preventDefault();
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 ipcMain.handle('login:start', createLogin);
@@ -304,11 +341,12 @@ ipcMain.handle('download:retry', (_, id) => {
   return download(restoreDownloadRequest(item.retryTask));
 });
 ipcMain.handle('download:cancel', (_, id) => {
+  if (quitting) return false;
   ensureQueueLoaded();
   const task = downloadManager.cancelQueued(id);
   if (task) { const record = { id, title: task.title, url: task.url, mode: task.contentModes.join(','), status: 'cancelled', file: '', files: [], fileCount: 0, sizeBytes: 0, completedAt: new Date().toISOString() }; saveDownloadRecord(record); send('download:done', { id, code: 2, record }); return true; }
   const active = downloadManager.activeTasks.get(id);
-  if (active && !active.finalized) {
+  if (active && !active.finalized && !publishingTasks.has(active)) {
     active.cancelled = true;
     try { downloadManager.save(); } catch (error) { active.cancelled = false; throw error; }
     downloadExecutor.stop(active);

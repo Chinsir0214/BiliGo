@@ -3,6 +3,14 @@ const { EventEmitter } = require('node:events');
 const test = require('node:test');
 const { createDownloadExecutor } = require('../src/download/executor');
 
+test('stopping a danmaku-only task aborts its signal without a media child process', () => {
+  const executor = createDownloadExecutor({});
+  const danmakuController = new AbortController();
+  executor.stop({ danmakuController });
+  assert.equal(danmakuController.signal.aborted, true);
+  assert.match(danmakuController.signal.reason.message, /下载已取消/);
+});
+
 function createHarness({ terminator } = {}) {
   const child = new EventEmitter();
   child.stdout = new EventEmitter();

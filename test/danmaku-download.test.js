@@ -1,9 +1,10 @@
 const assert = require('node:assert/strict');
-const { EventEmitter } = require('node:events');
+const { EventEmitter, once } = require('node:events');
 const path = require('node:path');
 const test = require('node:test');
 const zlib = require('node:zlib');
 const { createDanmakuDownloader } = require('../src/download/danmaku');
+const { createDanmakuWorkerPool } = require('../src/download/danmaku-pool');
 
 function createHarness({ body, chunks, encoding, status = 200, maxBytes = 1024 * 1024, responseError, data = { pages: [{ cid: 60521536 }] } }) {
   const requests = [];
@@ -37,7 +38,7 @@ function createHarness({ body, chunks, encoding, status = 200, maxBytes = 1024 *
       return { code: 0, data };
     },
     cookieHeader: () => 'test-cookie',
-    fs: { writeFileSync: (...args) => writes.push(args) },
+    fs: { promises: { writeFile: async (file, bytes) => writes.push([file, Buffer.from(bytes).toString('utf8')]) } },
     path, safeName: value => value
   };
   return { ...createDanmakuDownloader(dependencies), requests, viewRequests, writes };
@@ -103,7 +104,7 @@ for (const [label, encoding, encode] of [
     const harness = createHarness({ body: encode(Buffer.from(xml)), encoding });
     const file = await harness.downloadDanmaku(videoUrl, '测试弹幕', 'stage');
     assert.equal(file, path.join('stage', '测试弹幕 [av34547179].xml'));
-    assert.deepEqual(harness.writes[0], [file, xml, 'utf8']);
+    assert.deepEqual(harness.writes[0], [file, xml]);
     assert.equal(harness.requests[0].options.headers['Accept-Encoding'], 'gzip, deflate');
   });
 }
@@ -126,6 +127,15 @@ test('accepts valid escaped text, CDATA and comments', async () => {
   const harness = createHarness({ body: Buffer.from(content) });
   await harness.downloadDanmaku(videoUrl, '测试弹幕', 'stage');
   assert.equal(harness.writes[0][1], content);
+});
+
+test('preserves UTF-8 bytes and the original handling of leading byte order marks', async () => {
+  for (let count = 0; count <= 3; count += 1) {
+    const body = Buffer.from('\uFEFF'.repeat(count) + '<i>🌙</i>');
+    const harness = createHarness({ body });
+    await harness.downloadDanmaku(videoUrl, '测试弹幕', 'stage');
+    assert.equal(harness.writes[0][1], '\uFEFF'.repeat(Math.max(0, count - 2)) + '<i>🌙</i>');
+  }
 });
 
 test('rejects malformed compression, unsupported encoding and invalid UTF-8', async () => {
@@ -167,4 +177,48 @@ test('rejects an HTTP error even when its body resembles valid XML', async () =>
   const harness = createHarness({ body: Buffer.from(xml), status: 412 });
   await assert.rejects(harness.downloadDanmaku(videoUrl, '测试弹幕', 'stage'), /HTTP 412/);
   assert.equal(harness.writes.length, 0);
+});
+
+test('cancelling validation stops the worker before the download settles', async t => {
+  const controller = new AbortController();
+  const harness = createHarness({ body: Buffer.from(xml) });
+  let exited = false;
+  const onWorker = worker => {
+    worker.once('exit', () => { exited = true; });
+    controller.abort(new Error('下载已取消'));
+  };
+  process.once('worker', onWorker);
+  t.after(() => process.removeListener('worker', onWorker));
+  await assert.rejects(harness.downloadDanmaku(videoUrl, '测试弹幕', 'stage', controller.signal), /下载已取消/);
+  assert.equal(exited, true);
+  assert.equal(harness.requests[0].options.signal, controller.signal);
+  assert.equal(harness.viewRequests[0].options.signal, controller.signal);
+  assert.equal(harness.writes.length, 0);
+});
+
+test('bounded workers handle queued cancellation, reuse, failure recovery and idle release', async t => {
+  const workers = [];
+  const track = worker => workers.push(worker);
+  process.on('worker', track);
+  t.after(() => process.removeListener('worker', track));
+  const pool = createDanmakuWorkerPool({ limit: 1, idleMs: 50 });
+  const decode = (source, signal) => pool.decode(new TextEncoder().encode(source).buffer, 'identity', 1024, signal);
+  const first = decode('<i>one</i>');
+  const controller = new AbortController();
+  const cancelled = decode('<i>two</i>', controller.signal);
+  const third = decode('<i>three</i>');
+  controller.abort(new Error('下载已取消'));
+  await assert.rejects(cancelled, /下载已取消/);
+  assert.equal(new TextDecoder().decode(await first), '<i>one</i>');
+  assert.equal(new TextDecoder().decode(await third), '<i>three</i>');
+  assert.equal(workers.length, 1);
+
+  const failed = decode('<i>');
+  const recovered = decode('<i/>');
+  await assert.rejects(failed, /弹幕响应不是有效 XML/);
+  assert.equal(new TextDecoder().decode(await recovered), '<i/>');
+  assert.equal(workers.length, 2);
+  // Keep the test alive while waiting for the pool's unreferenced idle timer.
+  workers[1].ref();
+  await once(workers[1], 'exit');
 });

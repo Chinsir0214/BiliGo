@@ -19,6 +19,7 @@ function taskUi(api) {
   const nodes = new Map();
   const messages = [];
   const selections = [];
+  const frames = [];
   function element() {
     const descendants = new Map();
     let html = '';
@@ -72,6 +73,8 @@ function taskUi(api) {
   }
   const context = {
     $, window: { bili: { ...api, on: (name, callback) => events.set(name, callback) } },
+    requestAnimationFrame: callback => frames.push(callback),
+    loadDownloadModules: () => Promise.all([import('../src/download/form.js'), import('../src/download/submit.js')]),
     document: {
       createElement: element,
       querySelectorAll: selector => selector === '[data-history-id]:checked'
@@ -93,14 +96,12 @@ function taskUi(api) {
     section("$('#downloadBtn').addEventListener", "$('#selectionList').addEventListener"),
     section("$('#clearBtn').addEventListener", "$('#loginBtn').addEventListener"),
     section('function showDownloadDirectory', 'function applySettings('),
-    section('async function restoreQueue()', 'refreshAccountStatus().catch')
+    section('async function restoreQueue(', 'refreshAccountStatus().catch')
   ].join('\n'), context);
   return {
-    context, $, history, taskList, messages,
+    context, $, history, taskList, messages, frames,
     emit(name, data) { events.get('download:' + name)(data); },
     async select(...titles) {
-      context.downloadFormReady = await import('../src/download/form.js');
-      context.downloadSubmissionReady = await import('../src/download/submit.js');
       context.parsedResource = { type: 'video', items: titles.map(title => ({ title })) };
       return titles.map((_, index) => {
         const row = element();
@@ -116,6 +117,56 @@ function taskUi(api) {
 const task = (id, status) => ({ id, title: id, url: 'https://www.bilibili.com/video/BV123', mode: 'video', status });
 const record = (id, status = 'failed') => ({ ...task(id, status), retryTask: {}, completedAt: '2026-01-01' });
 const historyIds = ui => ui.history.querySelectorAll('[data-history-id]').map(input => input.dataset.historyId);
+
+function updateSchedule(supportsPaint) {
+  const checks = [];
+  let click, paint, idle, fallback;
+  class Observer {
+    static supportedEntryTypes = ['paint'];
+    constructor(callback) { this.callback = callback; }
+    observe({ type, buffered }) {
+      assert.equal(type, 'paint');
+      assert.equal(buffered, true);
+      paint = name => this.callback({ getEntriesByName: wanted => name === wanted ? [{}] : [] });
+    }
+    disconnect() { paint = undefined; }
+  }
+  const button = { dataset: {}, addEventListener(event, callback) { click = () => callback({ currentTarget: button }); } };
+  runInNewContext(section('let updateCheckRequested', 'Object.entries(settingsFields)'), {
+    $: () => button, PerformanceObserver: supportsPaint ? Observer : undefined,
+    requestIdleCallback: callback => { idle = callback; },
+    setTimeout(callback, delay) { assert.ok(delay >= 5000); fallback = callback; return 1; },
+    clearTimeout() { fallback = undefined; },
+    checkUpdates: manual => checks.push(manual)
+  });
+  return { checks, get paint() { return paint; }, get idle() { return idle; }, get fallback() { return fallback; }, click };
+}
+
+test('the automatic update check waits for contentful paint and subsequent idle time', () => {
+  const schedule = updateSchedule(true);
+  assert.deepEqual(schedule.checks, []);
+  schedule.paint('first-paint');
+  assert.equal(schedule.idle, undefined);
+  schedule.paint('first-contentful-paint');
+  assert.equal(schedule.fallback, undefined);
+  assert.deepEqual(schedule.checks, []);
+  schedule.idle();
+  assert.deepEqual(schedule.checks, [false]);
+});
+
+test('no paint or unsupported paint timing still permits updates, and a manual check takes precedence', () => {
+  for (const supportsPaint of [true, false]) {
+    const schedule = updateSchedule(supportsPaint);
+    schedule.fallback();
+    assert.deepEqual(schedule.checks, [false]);
+    assert.equal(schedule.paint, undefined);
+  }
+  const manual = updateSchedule(true);
+  manual.click();
+  manual.paint('first-contentful-paint');
+  manual.idle();
+  assert.deepEqual(manual.checks, [true]);
+});
 
 test('history read and mutation failures preserve displayed records and report failure', async () => {
   let readable = true;
@@ -200,6 +251,7 @@ test('a terminal event before submission acknowledgement never creates a card an
   assert.equal(card.dataset.task, 'second');
   assert.equal(card.querySelector('.task-status').textContent, '队列中');
   ui.emit('progress', { id: 'second', percent: 25, speed: '1 MB/s', eta: '00:01' });
+  ui.frames.shift()();
   assert.equal(card.querySelector('.task-status').textContent, '下载中');
   assert.equal(card.querySelector('.task-percent').textContent, '25.0%');
   const done = { id: 'second', code: 0, record: record('second', 'completed') };
@@ -209,6 +261,23 @@ test('a terminal event before submission acknowledgement never creates a card an
   assert.deepEqual(ui.taskList.children, [ui.$('#taskList .empty-state')]);
   assert.deepEqual(historyIds(ui), ['second', 'first']);
   assert.equal(ui.messages.filter(message => message === '下载完成，已移入任务记录').length, 1);
+});
+
+test('burst progress renders only the latest value per frame and drops completed tasks', async () => {
+  const ui = taskUi({ listQueue: async () => [task('a', 'queued'), task('b', 'queued')] });
+  await ui.context.restoreQueue();
+  const [b, a] = ui.taskList.children;
+  for (let percent = 1; percent <= 100; percent++) {
+    ui.emit('progress', { id: 'a', percent });
+    ui.emit('progress', { id: 'b', percent });
+  }
+  assert.equal(ui.frames.length, 1);
+  assert.equal(a.querySelector('.task-percent').textContent, '0%');
+  ui.emit('done', { id: 'b', code: 2 });
+  ui.frames.shift()();
+  assert.equal(a.querySelector('.task-percent').textContent, '100.0%');
+  assert.equal(b.querySelector('.task-percent').textContent, '0%');
+  assert.deepEqual(ui.taskList.children, [a]);
 });
 
 test('retry remembers an immediate terminal event for the new task ID', async () => {

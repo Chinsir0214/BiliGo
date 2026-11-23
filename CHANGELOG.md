@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.3
+
+- Opened the download center sooner by loading history and settings controls on demand and checking for updates after the first screen appears.
+- Moved danmaku decompression and XML validation to reusable background threads so large downloads keep the interface responsive.
+- Batched progress updates by frame and paused progress rendering while the download center is hidden.
+- Moved large output file copies off the main thread. When quitting during a copy, BiliGo finishes saving the files and records the result before it exits.
+
 ## 1.4.2
 
 - Unified the look of the download center, task history, and settings with consistent buttons, form controls, and status indicators.

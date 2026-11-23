@@ -101,6 +101,7 @@ function createDownloadQueue({ read, write, serialize, processTask, maxConcurren
   }
 
   function enqueue(task) {
+    if (stopping) throw new Error('应用正在退出');
     if (!task?.id || activeTasks.has(task.id) || downloadQueue.some(queued => queued.id === task.id)) throw new Error('下载任务 ID 无效或重复');
     downloadQueue.push(task);
     try { save(); } catch (error) { downloadQueue.pop(); throw error; }
@@ -121,11 +122,11 @@ function createDownloadQueue({ read, write, serialize, processTask, maxConcurren
     return task;
   }
 
-  function requeueActive(stopTask) {
+  function requeueActive(stopTask, shouldFinish = () => false) {
     stopping = true;
     clearTimeout(retryTimer);
     for (const task of activeTasks.values()) {
-      if (task.finalized) continue;
+      if (task.finalized || shouldFinish(task)) continue;
       const wasCancelled = task.cancelled;
       task.cancelled = true;
       try {

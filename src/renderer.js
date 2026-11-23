@@ -1,7 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const { getMediaCapabilities, MEDIA_MODES } = globalThis.BiliGoDownloadOptions;
-const downloadFormReady = import('./download/form.js');
-const downloadSubmissionReady = import('./download/submit.js');
+const loadDownloadModules = () => Promise.all([import('./download/form.js'), import('./download/submit.js')]);
 const downloadSettingFields = {
   videoQuality: 'videoQuality',
   audioQuality: 'audioQuality',
@@ -21,6 +20,9 @@ const settingsFields = { ...downloadSettingFields, maxConcurrentTasks: 'maxConcu
 const taskEmptyState = $('#taskList .empty-state');
 const historyEmptyState = $('#historyList .empty-state');
 const tasks = new Map();
+const pendingProgress = new Map();
+let progressFrame;
+let activeView = 'download';
 const pendingTaskRequests = new Set();
 const finishedTask = Symbol('finishedTask');
 let historyRecordsDuringRead;
@@ -146,8 +148,9 @@ function initCustomSelect(wrapper, { select, multiple = false, emptyLabel = '' }
   });
   return { render, sync, values: () => selected().map(item => item.dataset.value), setVisible: visible => wrapper.parentElement.classList.toggle('hidden', !visible) };
 }
-function setupCustomSelects() {
-  document.querySelectorAll('select').forEach(select => {
+function setupCustomSelects(view) {
+  view.querySelectorAll('select').forEach(select => {
+    if (select.customControl) return;
     const wrapper = document.createElement('div');
     wrapper.className = 'custom-select';
     wrapper.innerHTML = '<button type="button" class="custom-select-button" aria-haspopup="listbox" aria-expanded="false"></button><div class="custom-select-menu" role="listbox"></div>';
@@ -156,8 +159,8 @@ function setupCustomSelects() {
     const control = initCustomSelect(wrapper, { select });
     control.render([...select.options].map(option => ({ value: option.value, label: option.textContent, selected: option.selected })));
     select.customControl = control;
+    wrapper.querySelector('.custom-select-button').disabled = select.disabled;
   });
-  document.addEventListener('click', event => { if (!event.target.closest('.custom-select')) closeCustomSelects(); });
 }
 function subtitlePicker() {
   const label = $('#subtitlePicker');
@@ -209,7 +212,22 @@ function syncDerivedUi() {
   $('#selectionPanel').classList.toggle('show-covers', $('#showThumbnails').checked);
 }
 
-function switchView(view) { const page = { download: ['DOWNLOAD CENTER / 01', '下载中心'], history: ['DOWNLOAD LOG / 02', '任务记录'], settings: ['PREFERENCES / 03', '应用设置'] }[view]; document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view)); document.querySelectorAll('.view').forEach(item => item.classList.remove('active-view')); $(`#${view}View`).classList.add('active-view'); $('#pageEyebrow').textContent = page[0]; $('#pageTitle').textContent = page[1]; if (view === 'history') loadHistory(); }
+function switchView(view) {
+  const page = { download: ['DOWNLOAD CENTER / 01', '下载中心'], history: ['DOWNLOAD LOG / 02', '任务记录'], settings: ['PREFERENCES / 03', '应用设置'] }[view];
+  activeView = view;
+  document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === view));
+  document.querySelectorAll('.view').forEach(item => item.classList.remove('active-view'));
+  const panel = $(`#${view}View`);
+  panel.classList.add('active-view');
+  $('#pageEyebrow').textContent = page[0];
+  $('#pageTitle').textContent = page[1];
+  if (view === 'history') {
+    syncHistoryActions();
+    loadHistory();
+  }
+  if (view === 'settings') setupCustomSelects(panel);
+  if (view === 'download') scheduleProgress();
+}
 function drawQr(qr) { const canvas = $('#qrCanvas'); const size = 164; const scale = size / qr.size; canvas.width = size; canvas.height = size; const context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, size, size); context.fillStyle = '#181818'; for (let y = 0; y < qr.size; y += 1) for (let x = 0; x < qr.size; x += 1) if (qr.data[y * qr.size + x]) context.fillRect(Math.round(x * scale), Math.round(y * scale), Math.ceil(scale), Math.ceil(scale)); }
 function taskActions(task) { return `<div class="task-actions"><button class="icon-button" data-cancel-task="${text(task.id)}">取消任务</button><button class="icon-button" data-open-video="${text(task.url)}">打开视频</button><button class="icon-button" data-open-folder="${text(task.outputDir || '')}">打开文件夹</button></div>`; }
 function bindActions(node) {
@@ -286,9 +304,21 @@ function renderTaskProgress(node, data) {
   node.querySelector('.task-info').textContent = [data.speed, data.eta && `剩余 ${data.eta}`].filter(Boolean).join('  ·  ') || '正在读取视频流';
   node.querySelector('.task-status').textContent = '下载中';
 }
+function scheduleProgress() {
+  if (activeView !== 'download' || progressFrame !== undefined || !pendingProgress.size) return;
+  progressFrame = requestAnimationFrame(() => {
+    progressFrame = undefined;
+    if (activeView !== 'download') return;
+    for (const [id, data] of pendingProgress) renderTaskProgress(tasks.get(id), data);
+    pendingProgress.clear();
+  });
+}
 function updateTask(data) {
-  const node = tasks.get(data.id);
-  if (node) return renderTaskProgress(node, data);
+  if (tasks.has(data.id)) {
+    pendingProgress.set(data.id, data);
+    scheduleProgress();
+    return;
+  }
   for (const updates of pendingTaskRequests) {
     if (updates.get(data.id) !== finishedTask) updates.set(data.id, data);
   }
@@ -339,6 +369,7 @@ function finishTask(data) {
     updates.set(data.id, finishedTask);
   }
   if (node) {
+    pendingProgress.delete(data.id);
     node.remove();
     tasks.delete(data.id);
     if (!tasks.size) $('#taskList').replaceChildren(taskEmptyState);
@@ -434,11 +465,39 @@ subtitlePickerControl = subtitlePicker();
 const refreshLoginButton = $('#refreshLoginBtn');
 refreshLoginButton.addEventListener('click', async () => { refreshLoginButton.disabled = true; try { const status = await window.bili.loginStatus(); applyProfile(status.profile, status.loggedIn); toast(status.profile ? '账号状态正常：' + status.profile.name : status.loggedIn ? '登录凭据存在，但账号资料暂时不可用' : '当前未登录'); } catch (error) { toast('刷新失败：' + error.message); } finally { refreshLoginButton.disabled = false; } });
 document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
-setupCustomSelects(); setupContentChecks(); syncDerivedUi();
+document.addEventListener('click', event => { if (!event.target.closest('.custom-select')) closeCustomSelects(); });
+setupCustomSelects($('#downloadView')); setupContentChecks(); syncDerivedUi();
 window.bili.appVersion().then(version => { $('#appVersion').firstChild.textContent = `BiliGo ${version} `; }).catch(() => {});
 
 async function checkUpdates(showToast = true) { const button = $('#checkUpdateBtn'); const status = $('#updateStatus'); button.disabled = true; button.textContent = '检查中'; delete button.dataset.updateUrl; try { const result = await window.bili.checkForUpdates(); if (result.hasUpdate) { status.textContent = `发现新版本 ${result.latestVersion}（当前 ${result.currentVersion}）`; button.textContent = '查看更新'; button.dataset.updateUrl = result.pageUrl; if (showToast) toast(`发现新版本 ${result.latestVersion}`); return; } status.textContent = `当前已是最新版本 ${result.currentVersion}`; button.textContent = '重新检查'; if (showToast) toast('当前已是最新版本'); } catch (error) { status.textContent = '更新检查失败，请稍后重试。'; button.textContent = '重新检查'; if (showToast) toast(`更新检查失败：${error.message}`); } finally { button.disabled = false; } }
-$('#checkUpdateBtn').addEventListener('click', event => { const url = event.currentTarget.dataset.updateUrl; if (url) return window.bili.openVideo(url); checkUpdates(true); }); checkUpdates(false);
+let updateCheckRequested = false;
+$('#checkUpdateBtn').addEventListener('click', event => {
+  const url = event.currentTarget.dataset.updateUrl;
+  if (url) return window.bili.openVideo(url);
+  updateCheckRequested = true;
+  checkUpdates(true);
+});
+function scheduleAutomaticUpdateCheck() {
+  let observer;
+  const run = () => {
+    observer?.disconnect();
+    if (updateCheckRequested) return;
+    updateCheckRequested = true;
+    checkUpdates(false);
+  };
+  // A background or minimized window may never report a contentful paint.
+  const fallback = setTimeout(run, 10000);
+  if (globalThis.PerformanceObserver?.supportedEntryTypes.includes('paint')) {
+    observer = new PerformanceObserver(entries => {
+      if (!entries.getEntriesByName('first-contentful-paint').length) return;
+      observer.disconnect();
+      clearTimeout(fallback);
+      requestIdleCallback(run, { timeout: 2000 });
+    });
+    observer.observe({ type: 'paint', buffered: true });
+  }
+}
+scheduleAutomaticUpdateCheck();
 Object.entries(settingsFields).forEach(([key, id]) => {
   const input = $(`#${id}`);
   input.addEventListener('change', () => {
@@ -538,7 +597,7 @@ $('#downloadBtn').addEventListener('click', async () => {
   button.lastChild.textContent = '正在加入队列…';
   selectableInputs.forEach(input => { input.disabled = true; });
   try {
-    const form = await downloadFormReady;
+    const [form, { enqueueSelectedItems }] = await loadDownloadModules();
     const values = form.readDownloadForm({
       sourceUrl: parsedSourceUrl,
       selectedItems: entries.map(entry => entry.item),
@@ -549,7 +608,6 @@ $('#downloadBtn').addEventListener('click', async () => {
     });
     const validationError = form.validateDownloadForm(values);
     if (validationError) return toast(validationError);
-    const { enqueueSelectedItems } = await downloadSubmissionReady;
     const outcome = await enqueueSelectedItems(
       entries,
       entry => form.buildDownloadRequest(values, entry.item),
@@ -657,11 +715,17 @@ function applySettings(settings) {
   contentModeInputs.forEach(input => { input.checked = settings.contentModes.includes(input.value); });
   syncDerivedUi();
 }
-async function restoreQueue() {
+async function restoreQueue(readQueue = () => window.bili.listQueue()) {
   try {
-    await withTaskUpdates(() => window.bili.listQueue(), (queued, updates) => {
+    await withTaskUpdates(readQueue, (queued, updates) => {
       queued.forEach(task => acceptTask(task, updates));
     });
   } catch (error) { toast(`恢复下载队列失败：${error.message}`); }
 }
-refreshAccountStatus().catch(error => { applyProfile(null); toast(`账号状态刷新失败：${error.message}`); }); window.bili.getSettings().then(applySettings).catch(error => toast(`读取设置失败：${error.message}`)); loadHistory(); restoreQueue();
+refreshAccountStatus().catch(error => { applyProfile(null); toast(`账号状态刷新失败：${error.message}`); });
+window.bili.getSettings().then(applySettings).catch(error => toast(`读取设置失败：${error.message}`));
+// Buffer task events now, then request the snapshot after the window has finished loading.
+restoreQueue(async () => {
+  await new Promise(resolve => window.addEventListener('load', () => setTimeout(resolve, 0), { once: true }));
+  return window.bili.listQueue();
+});

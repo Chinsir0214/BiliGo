@@ -8,10 +8,12 @@ const { EventEmitter } = require('node:events');
 const { createLocalDataReader } = require('../src/local-data');
 const { createQueueStore } = require('../src/download/queue-store');
 
-function mainFixture(settings = '{}', history = '[]') {
+function mainFixture(settings = '{}', history = '[]', modules = {}) {
   const saved = { id: 'saved-task', title: 'saved', url: 'https://www.bilibili.com/video/BV1xx411c7mD', contentModes: ['video-audio'], outputDir: path.resolve('downloads'), queuedAt: '2026-01-01T00:00:00.000Z' };
   const files = new Map([['settings.json', settings], ['history.json', history], ['queue.json', JSON.stringify([saved])]]);
   const writes = [];
+  const reads = [];
+  const imports = [];
   const queueWrites = [];
   const sent = [];
   const handlers = new Map();
@@ -20,7 +22,12 @@ function mainFixture(settings = '{}', history = '[]') {
   app.getPath = key => path.resolve('test-user-data', key);
   app.whenReady = () => ({ then: callback => { start = callback; } });
   app.getVersion = () => '1.3.0';
-  app.quit = () => {};
+  let completedQuits = 0;
+  app.quit = () => {
+    let prevented = false;
+    app.emit('before-quit', { preventDefault() { prevented = true; } });
+    if (!prevented) completedQuits++;
+  };
   const contents = new EventEmitter();
   contents.setWindowOpenHandler = () => {};
   contents.send = (...message) => sent.push(message);
@@ -33,6 +40,7 @@ function mainFixture(settings = '{}', history = '[]') {
   }
   const fileSystem = {
     readFileSync(file) {
+      reads.push(path.basename(file));
       const value = files.get(path.basename(file));
       if (value instanceof Error) throw value;
       if (value === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
@@ -46,6 +54,8 @@ function mainFixture(settings = '{}', history = '[]') {
   const mainFile = path.resolve(__dirname, '../src/main.js');
   const mainRequire = createRequire(mainFile);
   function requireMain(name) {
+    imports.push(name);
+    if (Object.hasOwn(modules, name)) return modules[name];
     if (name === 'electron') return { app, BrowserWindow: Window, ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) }, shell: {}, session: { defaultSession: { webRequest: { onBeforeSendHeaders() {} } } } };
     if (name === 'fs') return fileSystem;
     if (name === 'qrcode') return {};
@@ -60,7 +70,78 @@ function mainFixture(settings = '{}', history = '[]') {
     return mainRequire(name);
   }
   vm.runInNewContext(fs.readFileSync(mainFile, 'utf8'), { require: requireMain, __dirname: path.dirname(mainFile), console, process, Buffer, URL, URLSearchParams, setTimeout, clearTimeout });
-  return { files, saved, writes, queueWrites, sent, contents, start: () => start(), invoke: (channel, ...args) => handlers.get(channel)({}, ...args), quit: () => app.emit('before-quit') };
+  return { files, saved, reads, imports, writes, queueWrites, sent, contents, start: () => start(), invoke: (channel, ...args) => handlers.get(channel)({}, ...args), quit: app.quit, closeWindows: () => app.emit('window-all-closed'), get completedQuits() { return completedQuits; } };
+}
+
+test('first window loads before queue recovery and optional feature imports', async () => {
+  const autoUpdater = { checkForUpdates: async () => ({ updateInfo: { version: '1.4.0' } }) };
+  const fixture = mainFixture('{}', '[]', { 'electron-updater': { autoUpdater } });
+  fixture.files.set('queue.json', '[]');
+  await fixture.start();
+  assert.deepEqual(fixture.reads, []);
+  fixture.contents.emit('did-finish-load');
+  assert.ok(fixture.reads.includes('queue.json'));
+  assert.ok(!fixture.imports.includes('qrcode'));
+  assert.ok(!fixture.imports.includes('electron-updater'));
+  const reads = fixture.reads.length;
+  fixture.contents.emit('did-finish-load');
+  assert.equal(fixture.reads.length, reads);
+  assert.equal((await fixture.invoke('update:check')).hasUpdate, true);
+  assert.ok(fixture.imports.includes('electron-updater'));
+  assert.equal(autoUpdater.autoDownload, false);
+  assert.equal(autoUpdater.autoInstallOnAppQuit, false);
+});
+
+test('quit before the first window loads leaves saved downloads for the next launch', async () => {
+  const fixture = mainFixture();
+  await fixture.start();
+  fixture.quit();
+  fixture.contents.emit('did-finish-load');
+  assert.deepEqual(fixture.reads, []);
+  assert.deepEqual(fixture.queueWrites, []);
+});
+
+for (const status of ['completed', 'failed']) {
+  test(`quit during an asynchronous publish records ${status} outputs exactly once`, async () => {
+    let started;
+    const publishing = new Promise(resolve => { started = resolve; });
+    let finish;
+    const output = path.resolve('downloads', 'video.mp4');
+    let interrupt;
+    const fixture = mainFixture('{"maxConcurrentTasks":2}', '[]', {
+      './tools': { resolveTool: name => name },
+      './download/executor': { createDownloadExecutor: () => ({
+        run: task => task.id === 'active' ? new Promise((_, reject) => { interrupt = reject; }) : Promise.resolve(),
+        stop: () => interrupt(new Error('interrupted'))
+      }) },
+      './download/file-workspace': { createTaskWorkspace: () => ({
+        stageDir: path.resolve('stage'),
+        cleanup() {},
+        commit: () => new Promise((resolve, reject) => {
+          finish = () => status === 'completed' ? resolve([output]) : reject(Object.assign(new Error('disk full'), { committedFiles: [output] }));
+          started();
+        })
+      }) }
+    });
+    fixture.files.set('queue.json', JSON.stringify([fixture.saved, { ...fixture.saved, id: 'active' }, { ...fixture.saved, id: 'queued' }]));
+    await fixture.start();
+    fixture.contents.emit('did-finish-load');
+    await publishing;
+    assert.equal(fixture.invoke('download:cancel', fixture.saved.id), false);
+    if (status === 'completed' && process.platform !== 'darwin') fixture.closeWindows();
+    else fixture.quit();
+    assert.equal(fixture.completedQuits, 0);
+    assert.equal(fixture.invoke('download:cancel', 'active'), false);
+    await assert.rejects(fixture.invoke('download:start', fixture.saved), /正在退出/);
+    finish();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(fixture.completedQuits, 1);
+    assert.deepEqual(Array.from(fixture.queueWrites.at(-1), task => task.id), ['active', 'queued']);
+    const history = JSON.parse(fixture.files.get('history.json'));
+    assert.equal(history.length, 1);
+    assert.equal(history[0].status, status);
+    assert.deepEqual(history[0].files, [output]);
+  });
 }
 
 test('failed settings restore preserves the saved queue through quit and reports after window load', async () => {

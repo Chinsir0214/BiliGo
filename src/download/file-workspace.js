@@ -123,16 +123,16 @@ function createTaskWorkspace({ destinationRoot, taskId }) {
     }
   }
 
-  function copyExclusively(source, target) {
+  async function copyExclusively(source, target) {
     try {
-      fs.linkSync(source, target);
+      await fs.promises.link(source, target);
     } catch (error) {
       if (!['EXDEV', 'ENOSYS', 'EOPNOTSUPP', 'ENOTSUP', 'EPERM'].includes(error.code)) throw error;
-      fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
+      await fs.promises.copyFile(source, target, fs.constants.COPYFILE_EXCL);
     }
   }
 
-  function commit(destination) {
+  async function commit(destination) {
     if (typeof destination !== 'string' || !path.isAbsolute(destination)) throw new Error('目标目录必须为绝对路径');
     if (!assertOwned()) throw new Error('任务暂存目录已不存在');
     const files = outputFiles();
@@ -149,7 +149,7 @@ function createTaskWorkspace({ destinationRoot, taskId }) {
           const filename = index === 1 ? `${name}${ext}` : `${name} (${index})${ext}`;
           const target = path.join(targetDirectory, filename);
           try {
-            copyExclusively(source, target);
+            await copyExclusively(source, target);
             committedFiles.push(target);
             break;
           } catch (error) {

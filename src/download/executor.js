@@ -3,6 +3,7 @@ const { StringDecoder } = require('string_decoder');
 
 function createDownloadExecutor({ resolveYtdlp, pushCookieArgs, send, spawnProcess = spawn }) {
   function stop(task) {
+    task.danmakuController?.abort(new Error('下载已取消'));
     const child = task.process;
     if (!child || child.killed) return;
     if (process.platform === 'win32' && child.pid) {

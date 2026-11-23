@@ -11,7 +11,7 @@ function temporaryRoot(t) {
   return root;
 }
 
-test('commits multiple outputs without overwriting a destination file', t => {
+test('commits multiple outputs without overwriting a destination file', async t => {
   const root = temporaryRoot(t);
   const destination = path.join(root, 'Collection');
   fs.mkdirSync(destination);
@@ -21,7 +21,7 @@ test('commits multiple outputs without overwriting a destination file', t => {
   fs.mkdirSync(path.join(workspace.stageDir, 'subtitles'));
   fs.writeFileSync(path.join(workspace.stageDir, 'subtitles', 'episode.zh.srt'), 'new subtitles');
 
-  const files = workspace.commit(destination);
+  const files = await workspace.commit(destination);
 
   assert.deepEqual(files.sort(), [
     path.join(destination, 'episode (2).mp4'),
@@ -52,7 +52,7 @@ test('cancel cleanup removes only this task stage', t => {
   other.cleanup();
 });
 
-test('a restarted task removes its own stale stage before downloading again', t => {
+test('a restarted task removes its own stale stage before downloading again', async t => {
   const root = temporaryRoot(t);
   const first = createTaskWorkspace({ destinationRoot: root, taskId: 'resume-me' });
   fs.writeFileSync(path.join(first.stageDir, 'old.part'), 'obsolete');
@@ -66,16 +66,44 @@ test('a restarted task removes its own stale stage before downloading again', t 
   assert.equal(resumed.stageDir, first.stageDir);
   assert.equal(fs.existsSync(path.join(resumed.stageDir, 'old.part')), false);
   fs.writeFileSync(path.join(resumed.stageDir, 'new.mp4'), 'fresh');
-  assert.deepEqual(resumed.commit(root), [path.join(root, 'new.mp4')]);
+  assert.deepEqual(await resumed.commit(root), [path.join(root, 'new.mp4')]);
   assert.equal(fs.readFileSync(path.join(root, 'new.mp4'), 'utf8'), 'fresh');
 });
 
-test('rejects unowned stage and destinations outside the chosen root', t => {
+test('rejects unowned stage and destinations outside the chosen root', async t => {
   const root = temporaryRoot(t);
   const workspace = createTaskWorkspace({ destinationRoot: root, taskId: 'guarded' });
   fs.writeFileSync(path.join(workspace.stageDir, 'video.mp4'), 'video');
-  assert.throws(() => workspace.commit(path.dirname(root)), /目标目录超出下载根目录/);
+  await assert.rejects(workspace.commit(path.dirname(root)), /目标目录超出下载根目录/);
   fs.writeFileSync(path.join(workspace.stageDir, '.biligo-workspace.json'), '{}');
   assert.throws(() => workspace.cleanup(), /所有权标记不匹配/);
   assert.equal(fs.existsSync(path.join(workspace.stageDir, 'video.mp4')), true);
+});
+
+test('unsupported hard links use asynchronous exclusive copies and preserve earlier outputs on failure', async t => {
+  const root = temporaryRoot(t);
+  const workspace = createTaskWorkspace({ destinationRoot: root, taskId: 'copy-fallback' });
+  fs.writeFileSync(path.join(workspace.stageDir, 'a.mp4'), 'fresh');
+  fs.writeFileSync(path.join(workspace.stageDir, 'b.srt'), 'subtitles');
+  fs.writeFileSync(path.join(root, 'a.mp4'), 'existing');
+  fs.writeFileSync(path.join(root, 'b.srt'), 'existing');
+  t.mock.method(fs.promises, 'link', async () => { throw Object.assign(new Error(), { code: 'EPERM' }); });
+  const copyFile = fs.promises.copyFile;
+  let firstOutput;
+  t.mock.method(fs.promises, 'copyFile', async (source, target, flags) => {
+    assert.equal(flags, fs.constants.COPYFILE_EXCL);
+    if (firstOutput) throw new Error('disk full');
+    await copyFile(source, target, flags);
+    firstOutput = target;
+  });
+  await assert.rejects(workspace.commit(root), error => {
+    assert.match(error.message, /disk full/);
+    assert.deepEqual(error.committedFiles, [firstOutput]);
+    return true;
+  });
+  assert.equal(fs.readFileSync(path.join(root, 'a.mp4'), 'utf8'), 'existing');
+  assert.equal(fs.readFileSync(path.join(root, 'b.srt'), 'utf8'), 'existing');
+  assert.match(path.basename(firstOutput), / \(2\)\.(mp4|srt)$/);
+  assert.equal(fs.readFileSync(firstOutput, 'utf8'), firstOutput.endsWith('.mp4') ? 'fresh' : 'subtitles');
+  workspace.cleanup();
 });
