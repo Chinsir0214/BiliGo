@@ -1,0 +1,49 @@
+/* Shared palette, geometry and stacking order. */
+:root {
+  --font-ui: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+
+  --ink: #191919;
+  --accent: #222;
+  --accent-hover: #444;
+  --muted: #595959;
+  --warning: #884b3d;
+  --surface: #fff;
+  --canvas: #f7f7f5;
+  --soft: #f0f0ed;
+  --surface-hover: #fcfcfa;
+  --surface-disabled: #fafaf8;
+  --line: #e6e6e2;
+  --control-border: #85857f;
+  --control-border-hover: #65655f;
+  --scroll-thumb: #888883;
+  --progress-track: #eaeae7;
+  --progress-value: #333;
+  --switch-track: #83837d;
+
+  --sidebar: #202020;
+  --sidebar-active: #303030;
+  --sidebar-line: #545454;
+  --sidebar-muted: #a8a8a8;
+  --backdrop: rgb(20 20 20 / 43%);
+  --shadow-card: rgb(0 0 0 / 2.5%);
+  --shadow-control: rgb(20 20 20 / 2%);
+  --shadow-ring: rgb(34 34 34 / 8%);
+  --shadow-menu: rgb(24 24 20 / 12%);
+  --shadow-switch: rgb(0 0 0 / 24%);
+
+  --radius-control: 4px;
+  --radius-item: 6px;
+  --radius-nav: 7px;
+  --radius-option: 8px;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
+
+  --z-sidebar: 10;
+  --z-menu: 20;
+  --z-topbar: 21;
+  --z-modal: 30;
+  --z-toast: 40;
+
+  --sidebar-width: 220px;
+  --content-gutter: clamp(24px, 6.5vw, 96px);
+}

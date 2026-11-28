@@ -2,7 +2,7 @@ const INITIAL_RETRY_MS = 250;
 const MAX_RETRY_MS = 5000;
 
 function withoutRuntimeState(task) {
-  const { cancelled, finalized, interrupted, process, queueStatus, ...saved } = task;
+  const { cancelled, finalized, interrupted, process, danmakuController, queueStatus, ...saved } = task;
   return saved;
 }
 
@@ -31,6 +31,9 @@ function createDownloadQueue({ read, write, serialize, processTask, maxConcurren
 
   function save() {
     write(snapshot());
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+    retryDelay = INITIAL_RETRY_MS;
     pendingCompletion = undefined;
   }
 
@@ -109,6 +112,31 @@ function createDownloadQueue({ read, write, serialize, processTask, maxConcurren
     return downloadQueue.length + activeTasks.size;
   }
 
+  function enqueueMany(tasks) {
+    if (stopping) throw new Error('应用正在退出');
+    if (!Array.isArray(tasks)) throw new TypeError('下载任务列表必须为数组');
+    if (!tasks.length) return downloadQueue.length + activeTasks.size;
+    const ids = new Set([...activeTasks.keys(), ...downloadQueue.map(task => task.id)]);
+    for (const task of tasks) {
+      if (!task?.id || ids.has(task.id)) throw new Error('下载任务 ID 无效或重复');
+      ids.add(task.id);
+    }
+    const previous = downloadQueue.length;
+    const capacity = Math.max(1, Math.min(10, Math.floor(Number(maxConcurrency()) || 1)));
+    downloadQueue.push(...tasks);
+    const starting = downloadQueue.splice(0, Math.max(0, capacity - activeTasks.size));
+    for (const task of starting) activeTasks.set(task.id, task);
+    try { save(); } catch (error) {
+      for (const task of starting) activeTasks.delete(task.id);
+      downloadQueue.unshift(...starting);
+      downloadQueue.length = previous;
+      throw error;
+    }
+    const count = downloadQueue.length + activeTasks.size;
+    for (const task of starting) void execute(task);
+    return count;
+  }
+
   function cancelQueued(id) {
     const index = downloadQueue.findIndex(task => task.id === id);
     if (index < 0) return null;
@@ -119,26 +147,31 @@ function createDownloadQueue({ read, write, serialize, processTask, maxConcurren
       downloadQueue.splice(index, 0, task);
       throw error;
     }
+    pump();
     return task;
   }
 
   function requeueActive(stopTask, shouldFinish = () => false) {
     stopping = true;
     clearTimeout(retryTimer);
+    const toRequeue = [];
+    const stopped = [];
     for (const task of activeTasks.values()) {
       if (task.finalized || shouldFinish(task)) continue;
       const wasCancelled = task.cancelled;
       task.cancelled = true;
       try {
         const result = stopTask(task);
-        if (result && typeof result.then === 'function') void Promise.resolve(result).catch(error => reportError(onTaskError, task, error));
+        if (result) stopped.push(Promise.resolve(result).catch(error => reportError(onTaskError, task, error)));
       } catch (error) { void reportError(onTaskError, task, error); }
-      if (!wasCancelled && !downloadQueue.some(queued => queued.id === task.id)) downloadQueue.unshift(persistentTask(task));
+      if (!wasCancelled && !downloadQueue.some(queued => queued.id === task.id)) toRequeue.push(persistentTask(task));
     }
+    downloadQueue.unshift(...toRequeue);
     save();
+    return Promise.all(stopped);
   }
 
-  return { downloadQueue, activeTasks, load, save, pump, enqueue, cancelQueued, requeueActive };
+  return { downloadQueue, activeTasks, load, save, pump, notifyConcurrencyChange: pump, enqueue, enqueueMany, cancelQueued, requeueActive };
 }
 
 module.exports = { createDownloadQueue };

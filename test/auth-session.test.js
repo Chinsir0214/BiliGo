@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createAuthSession } = require('../src/auth/session');
 
-function harness(t, requestJson, resolveLoginCookies = async () => []) {
+function harness(t, handleRequest, resolveLoginCookies = async () => []) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'biligo-auth-test-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const cookieFile = path.join(directory, 'cookies.txt');
@@ -15,7 +15,14 @@ function harness(t, requestJson, resolveLoginCookies = async () => []) {
   const auth = createAuthSession({
     cookieFile,
     profileFile,
-    requestJson,
+    requestJson(url, headers, options) {
+      assert.doesNotMatch(new URL(url).pathname, /\/poll$/);
+      return handleRequest(url, headers, options);
+    },
+    requestJsonWithHeaders(url, headers, options) {
+      assert.match(new URL(url).pathname, /\/poll$/);
+      return handleRequest(url, headers, options);
+    },
     resolveLoginCookies,
     send: (channel, payload) => events.push({ channel, payload }),
     log: () => {},
@@ -31,7 +38,7 @@ function generated(key = 'one') {
 }
 
 function successfulPoll(cookie = 'session') {
-  return { json: { data: { code: 0, message: 'success' } }, headers: { 'set-cookie': [`SESSDATA=${cookie}; Domain=.bilibili.com; Path=/`] } };
+  return { data: { code: 0, data: { code: 0, message: 'success' } }, headers: { 'set-cookie': [`SESSDATA=${cookie}; Domain=.bilibili.com; Path=/`] } };
 }
 
 test('QR login returns existing shape, polls once at a time, stores cookies and profile', async t => {
@@ -72,8 +79,9 @@ test('an unauthenticated profile response clears the cache before offline fallba
     if (response instanceof Error) throw response;
     return response;
   });
-  fs.writeFileSync(cookieFile, '# Netscape HTTP Cookie File\n.bilibili.com\tTRUE\t/\tFALSE\t0\tSESSDATA\told');
   for (const invalidNav of [{ code: -101, message: '账号未登录' }, { code: 0, data: { isLogin: false } }]) {
+    // Each explicit logout response invalidates both credentials and cached identity.
+    fs.writeFileSync(cookieFile, '# Netscape HTTP Cookie File\n.bilibili.com\tTRUE\t/\tFALSE\t0\tSESSDATA\told');
     response = { code: 0, data: { uname: '旧用户', face: 'old.jpg' } };
     assert.deepEqual(await auth.getProfile(), { name: '旧用户', avatar: 'old.jpg' });
     assert.equal(fs.existsSync(profileFile), true);
@@ -81,6 +89,7 @@ test('an unauthenticated profile response clears the cache before offline fallba
     response = invalidNav;
     assert.equal(await auth.getProfile(), null, JSON.stringify(invalidNav));
     assert.equal(fs.existsSync(profileFile), false, JSON.stringify(invalidNav));
+    assert.equal(fs.existsSync(cookieFile), false, JSON.stringify(invalidNav));
 
     response = new Error('offline');
     assert.equal(await auth.getProfile(), null, JSON.stringify(invalidNav));
@@ -116,7 +125,7 @@ test('scan waits for phone confirmation; expiry stops polling', async t => {
   let pollCode = 86090;
   const { auth, events, ticks } = harness(t, url => {
     if (url.includes('/generate')) return generated();
-    if (url.includes('/poll')) { pollCalls += 1; return { json: { data: { code: pollCode } }, headers: {} }; }
+    if (url.includes('/poll')) { pollCalls += 1; return { data: { code: 0, data: { code: pollCode } }, headers: {} }; }
     throw new Error(`unexpected URL: ${url}`);
   });
   await auth.createLogin();
@@ -143,7 +152,7 @@ test('successful poll resolves cross-domain ticket cookies before checking profi
   let resolvedUrl;
   const { auth, events, ticks } = harness(t, url => {
     if (url.includes('/generate')) return generated();
-    if (url.includes('/poll')) return { json: { data: { code: 0, url: ticketUrl } }, headers: {} };
+    if (url.includes('/poll')) return { data: { code: 0, data: { code: 0, url: ticketUrl } }, headers: {} };
     if (url.includes('/nav')) return { code: 0, data: { uname: '测试用户' } };
     throw new Error(`unexpected URL: ${url}`);
   }, async url => {
@@ -164,7 +173,7 @@ test('logout, cancel and a newer QR session invalidate a pending cross-domain ti
     let generationCount = 0;
     const { auth, cookieFile, profileFile, events, ticks } = harness(t, url => {
       if (url.includes('/generate')) return generated(++generationCount === 1 ? 'old' : 'new');
-      if (url.includes('qrcode_key=old')) return { json: { data: { code: 0, url: 'https://passport.biligame.com/crossDomain?ticket=old' } }, headers: {} };
+      if (url.includes('qrcode_key=old')) return { data: { code: 0, data: { code: 0, url: 'https://passport.biligame.com/crossDomain?ticket=old' } }, headers: {} };
       if (url.includes('qrcode_key=new')) return successfulPoll('new-session');
       if (url.includes('/nav')) return { code: 0, data: { uname: '新用户' } };
       throw new Error(`unexpected URL: ${url}`);
@@ -194,7 +203,7 @@ test('logout, cancel and a newer QR session invalidate a pending cross-domain ti
 test('successful poll without session cookie reports failure instead of login success', async t => {
   const { auth, events, ticks } = harness(t, url => {
     if (url.includes('/generate')) return generated();
-    if (url.includes('/poll')) return { json: { data: { code: 0, url: 'https://passport.biligame.com/crossDomain?ticket=redacted' } }, headers: {} };
+    if (url.includes('/poll')) return { data: { code: 0, data: { code: 0, url: 'https://passport.biligame.com/crossDomain?ticket=redacted' } }, headers: {} };
     throw new Error(`unexpected URL: ${url}`);
   });
   await auth.createLogin();
@@ -205,16 +214,18 @@ test('successful poll without session cookie reports failure instead of login su
 
 test('logout during profile request prevents stale success and cache resurrection', async t => {
   const nav = Promise.withResolvers();
+  const checkingProfile = Promise.withResolvers();
   const { auth, cookieFile, profileFile, events, ticks } = harness(t, url => {
     if (url.includes('/generate')) return generated();
     if (url.includes('/poll')) return successfulPoll();
-    if (url.includes('/nav')) return nav.promise;
+    if (url.includes('/nav')) { checkingProfile.resolve(); return nav.promise; }
     throw new Error(`unexpected URL: ${url}`);
   });
   await auth.createLogin();
   const pending = [...ticks][0]();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(fs.existsSync(cookieFile), true);
+  await checkingProfile.promise;
+  assert.equal(fs.existsSync(cookieFile), false);
+  assert.equal(fs.existsSync(profileFile), false);
   assert.equal(auth.logout(), true);
   nav.resolve({ code: 0, data: { uname: '旧用户' } });
   await pending;

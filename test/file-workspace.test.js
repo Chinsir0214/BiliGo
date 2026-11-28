@@ -80,30 +80,35 @@ test('rejects unowned stage and destinations outside the chosen root', async t =
   assert.equal(fs.existsSync(path.join(workspace.stageDir, 'video.mp4')), true);
 });
 
-test('unsupported hard links use asynchronous exclusive copies and preserve earlier outputs on failure', async t => {
+test('failed cross-volume copies clean up temporary files and roll back published outputs', async t => {
   const root = temporaryRoot(t);
   const workspace = createTaskWorkspace({ destinationRoot: root, taskId: 'copy-fallback' });
   fs.writeFileSync(path.join(workspace.stageDir, 'a.mp4'), 'fresh');
   fs.writeFileSync(path.join(workspace.stageDir, 'b.srt'), 'subtitles');
   fs.writeFileSync(path.join(root, 'a.mp4'), 'existing');
   fs.writeFileSync(path.join(root, 'b.srt'), 'existing');
-  t.mock.method(fs.promises, 'link', async () => { throw Object.assign(new Error(), { code: 'EPERM' }); });
+  t.mock.method(fs.promises, 'link', async () => { throw Object.assign(new Error(), { code: 'EXDEV' }); });
   const copyFile = fs.promises.copyFile;
-  let firstOutput;
-  t.mock.method(fs.promises, 'copyFile', async (source, target, flags) => {
+  let firstPublished;
+  t.mock.method(fs.promises, 'copyFile', async (source, temporary, flags) => {
     assert.equal(flags, fs.constants.COPYFILE_EXCL);
-    if (firstOutput) throw new Error('disk full');
-    await copyFile(source, target, flags);
-    firstOutput = target;
+    assert.match(path.basename(temporary), /^\..+\.part$/);
+    if (firstPublished) {
+      assert.equal(fs.existsSync(firstPublished), true);
+      await fs.promises.writeFile(temporary, 'incomplete', { flag: 'wx' });
+      throw new Error('disk full');
+    }
+    await copyFile(source, temporary, flags);
+    const { name, ext } = path.parse(source);
+    firstPublished = path.join(root, `${name} (2)${ext}`);
   });
   await assert.rejects(workspace.commit(root), error => {
     assert.match(error.message, /disk full/);
-    assert.deepEqual(error.committedFiles, [firstOutput]);
+    assert.deepEqual(error.committedFiles, []);
     return true;
   });
   assert.equal(fs.readFileSync(path.join(root, 'a.mp4'), 'utf8'), 'existing');
   assert.equal(fs.readFileSync(path.join(root, 'b.srt'), 'utf8'), 'existing');
-  assert.match(path.basename(firstOutput), / \(2\)\.(mp4|srt)$/);
-  assert.equal(fs.readFileSync(firstOutput, 'utf8'), firstOutput.endsWith('.mp4') ? 'fresh' : 'subtitles');
+  assert.deepEqual(fs.readdirSync(root).sort(), ['.biligo-staging', 'a.mp4', 'b.srt']);
   workspace.cleanup();
 });

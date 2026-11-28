@@ -33,8 +33,8 @@ function createHarness({ body, chunks, encoding, status = 200, maxBytes = 1024 *
   };
   const dependencies = {
     httpsClient: https, maxTextBytes: maxBytes,
-    requestJson: async (url, options) => {
-      viewRequests.push({ url, options });
+    requestJson: async (url, headers, options) => {
+      viewRequests.push({ url, headers, options });
       return { code: 0, data };
     },
     cookieHeader: () => 'test-cookie',
@@ -58,7 +58,8 @@ test('downloads the requested part by page number and defaults to P1', async () 
   assert.deepEqual(harness.requests.map(({ url }) => new URL(url).searchParams.get('oid')), ['103', '101']);
   assert.deepEqual(harness.viewRequests[0], {
     url: 'https://api.bilibili.com/x/web-interface/view?bvid=BV123',
-    options: { headers: { Cookie: 'test-cookie' } }
+    headers: { Referer: 'https://www.bilibili.com/', Cookie: 'test-cookie' },
+    options: { signal: harness.requests[0].options.signal }
   });
 });
 
@@ -163,7 +164,7 @@ test('rejects oversized compressed body before a following end can resolve a val
     chunks: [validPrefix, Buffer.from('x')],
     maxBytes: validPrefix.length
   });
-  await assert.rejects(harness.downloadDanmaku(videoUrl, '测试弹幕', 'stage'), /弹幕响应压缩体过大/);
+  await assert.rejects(harness.downloadDanmaku(videoUrl, '测试弹幕', 'stage'), /响应体过大/);
   assert.equal(harness.writes.length, 0);
 });
 
@@ -191,8 +192,10 @@ test('cancelling validation stops the worker before the download settles', async
   t.after(() => process.removeListener('worker', onWorker));
   await assert.rejects(harness.downloadDanmaku(videoUrl, '测试弹幕', 'stage', controller.signal), /下载已取消/);
   assert.equal(exited, true);
-  assert.equal(harness.requests[0].options.signal, controller.signal);
-  assert.equal(harness.viewRequests[0].options.signal, controller.signal);
+  for (const request of [harness.requests[0], harness.viewRequests[0]]) {
+    assert.equal(request.options.signal.aborted, true);
+    assert.equal(request.options.signal.reason, controller.signal.reason);
+  }
   assert.equal(harness.writes.length, 0);
 });
 
@@ -217,8 +220,8 @@ test('bounded workers handle queued cancellation, reuse, failure recovery and id
   const recovered = decode('<i/>');
   await assert.rejects(failed, /弹幕响应不是有效 XML/);
   assert.equal(new TextDecoder().decode(await recovered), '<i/>');
-  assert.equal(workers.length, 2);
-  // Keep the test alive while waiting for the pool's unreferenced idle timer.
-  workers[1].ref();
-  await once(workers[1], 'exit');
+  // Invalid XML rejects the job, leaving the same worker available for the next one.
+  assert.equal(workers.length, 1);
+  workers[0].ref();
+  await once(workers[0], 'exit');
 });

@@ -2,11 +2,17 @@
 
 BiliGo is a focused Windows desktop downloader for Bilibili, powered by Electron, yt-dlp, and ffmpeg.
 
-## 1.4.4
+## 1.5.0
+
+- Hardened Electron security and local file opening checks, tightened CSP, added single-instance locking, and switched local settings, history, and queue persistence to atomic writes with damaged-entry recovery.
+- Added batch download enqueueing, safer workspace publishing with orphaned staging cleanup, process-tree termination with stall timeouts, `b23.tv` short-link expansion, single-part metadata fixes, and cookie verification before saving QR logins.
+- Modularized the main and renderer processes, enabled Enter-to-parse and clear-history confirmation, deferred hidden thumbnail requests, and added `typecheck`, `verify:tools`, and expanded automated test coverage.
+- See [CHANGELOG.md](CHANGELOG.md) for the release history.
+
+## 1.4.4 highlights
 
 - The download center, history, settings, and dialogs now share a Windows UI font. Digits stay aligned as download progress and speed change.
 - Navigation and controls use locally bundled Microsoft Fluent Regular icons, including in high-contrast mode.
-- See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## 1.4.3 highlights
 
@@ -42,10 +48,10 @@ BiliGo is a focused Windows desktop downloader for Bilibili, powered by Electron
 
 ## Download
 
-Download either Windows package from the [v1.4.4 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.4.4).
+Download either Windows package from the [v1.5.0 release](https://github.com/Chinsir0214/BiliGo/releases/tag/v1.5.0).
 
-- [BiliGo-Setup-1.4.4.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.4/BiliGo-Setup-1.4.4.exe) installs BiliGo and includes an in-app update check.
-- [BiliGo-1.4.4-portable.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.4.4/BiliGo-1.4.4-portable.exe) runs without installation.
+- [BiliGo-Setup-1.5.0.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.5.0/BiliGo-Setup-1.5.0.exe) installs BiliGo and includes an in-app update check.
+- [BiliGo-1.5.0-portable.exe](https://github.com/Chinsir0214/BiliGo/releases/download/v1.5.0/BiliGo-1.5.0-portable.exe) runs without installation.
 
 Both packages include the project-provided Windows builds of yt-dlp and ffmpeg. No separate tool installation is required.
 
@@ -63,6 +69,8 @@ Useful checks:
 ```bash
 npm test
 npm run check
+npm run typecheck
+npm run verify:tools
 ```
 
 Build Windows packages:
@@ -77,7 +85,7 @@ Windows CI runs the syntax check, tests, an unpacked Electron build, and verifie
 
 ## Supported Content
 
-- Single Bilibili videos using BV or AV links
+- Single Bilibili videos using BV, AV, or `b23.tv` links
 - Multi-part videos
 - Bilibili collections
 - Bilibili favorites, including authenticated favorites

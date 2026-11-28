@@ -4,21 +4,60 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Check tracked paths and file sizes
+        shell: python
+        run: |
+          import os
+          import re
+          import subprocess
+
+          forbidden = re.compile(r'(?:^|/)(?:\.tmp|qa|layout-audit)/|\.mp4\Z|^tools/[^/]+\.exe\Z', re.IGNORECASE)
+          tree = subprocess.check_output(['git', 'ls-tree', '-rlz', 'HEAD'])
+          failed = False
+          for record in tree.split(b'\0'):
+              if not record:
+                  continue
+              info, name = record.split(b'\t', 1)
+              mode, kind, oid, size = info.split()
+              path = os.fsdecode(name)
+              if forbidden.search(path):
+                  print(f'Forbidden tracked path: {path!r}')
+                  failed = True
+              if kind == b'blob' and int(size) > 2 * 1024 * 1024:
+                  print(f'Tracked file exceeds 2 MiB ({int(size)} bytes): {path!r}')
+                  failed = True
+          raise SystemExit(int(failed))
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: tools/
+          key: tools-win32-x64-${{ hashFiles('tools/tool-versions.json') }}
+      - name: Restore the checked-in checksum manifest
+        run: git restore --source=HEAD -- tools/tool-versions.json
       - name: Fetch and verify bundled tools
         shell: pwsh
         run: ./scripts/fetch-tools.ps1
       - run: npm run check
-      - run: npm test
+      - run: npm run typecheck
+      - run: node --test --experimental-test-coverage test/*.test.js
+      - run: npm audit --omit=dev --audit-level=high
       - name: Build unpacked Windows app
         run: npx --no-install electron-builder --win --dir
       - name: Verify packaged tool hashes

@@ -1,4 +1,4 @@
-const fs = require('node:fs');
+const { createJsonStore, SCHEMA_VERSION } = require('./infra/json-store');
 
 class LocalDataReadError extends Error {
   constructor(filePath, label, reason, cause) {
@@ -9,25 +9,40 @@ class LocalDataReadError extends Error {
   }
 }
 
-function createLocalDataReader({ fs: fileSystem = fs } = {}) {
-  function read(filePath, label, kind) {
-    let text;
-    try { text = fileSystem.readFileSync(filePath, 'utf8'); }
-    catch (error) {
-      if (error.code === 'ENOENT') return kind === 'array' ? [] : {};
-      throw new LocalDataReadError(filePath, label, error.message, error);
-    }
-    let value;
-    try { value = JSON.parse(text); }
-    catch (error) { throw new LocalDataReadError(filePath, label, 'JSON 内容损坏', error); }
-    const valid = kind === 'array' ? Array.isArray(value) : value !== null && typeof value === 'object' && !Array.isArray(value);
-    if (!valid) throw new LocalDataReadError(filePath, label, kind === 'array' ? '内容必须是数组' : '内容必须是对象');
-    return value;
+function createLocalDataReader({ fs } = {}) {
+  function settings(filePath) {
+    return createJsonStore(filePath, {
+      fs, initial: () => ({}),
+      decode(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('内容必须是对象');
+        return value;
+      },
+      encode: value => ({ ...value, schemaVersion: SCHEMA_VERSION })
+    });
+  }
+
+  function history(filePath) {
+    return createJsonStore(filePath, {
+      fs, initial: () => [],
+      decode(value) {
+        const items = value?.schemaVersion === SCHEMA_VERSION ? value.items : value;
+        if (!Array.isArray(items)) throw new Error('内容必须是数组');
+        return items;
+      },
+      encode: items => ({ schemaVersion: SCHEMA_VERSION, items })
+    });
+  }
+
+  function read(store, filePath, label) {
+    try { return store(filePath).read(); }
+    catch (cause) { throw new LocalDataReadError(filePath, label, cause.message, cause); }
   }
 
   return {
-    readHistory: filePath => read(filePath, '下载记录', 'array'),
-    readSettings: filePath => read(filePath, '设置', 'object')
+    readHistory: file => read(history, file, '下载记录'),
+    readSettings: file => read(settings, file, '设置'),
+    writeHistory: (file, items) => history(file).write(items),
+    writeSettings: (file, value) => settings(file).write(value)
   };
 }
 

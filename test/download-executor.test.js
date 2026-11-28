@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
+const { createMockProcess } = require('./helpers/test-env');
 const { createDownloadExecutor } = require('../src/download/executor');
 
 test('stopping a danmaku-only task aborts its signal without a media child process', () => {
@@ -12,15 +13,7 @@ test('stopping a danmaku-only task aborts its signal without a media child proce
 });
 
 function createHarness({ terminator } = {}) {
-  const child = new EventEmitter();
-  child.stdout = new EventEmitter();
-  child.stderr = new EventEmitter();
-  child.killed = false;
-  child.killSignals = [];
-  child.kill = signal => {
-    child.killed = true;
-    child.killSignals.push(signal);
-  };
+  const child = createMockProcess();
   const sent = [];
   let spawned;
   const executor = createDownloadExecutor({
@@ -121,16 +114,25 @@ test('reports the termination signal when no explicit error was emitted', async 
   await assert.rejects(running, /信号 SIGKILL/);
 });
 
+test('a task cancelled before run rejects without spawning a child', async () => {
+  const harness = createHarness();
+  await assert.rejects(harness.executor.run({ id: 'cancelled', cancelled: true }, [], []), { message: '下载已取消' });
+  assert.equal(harness.spawned, undefined);
+});
+
 test('cancellation takes precedence over a prior error and stream read errors', async () => {
   const harness = createHarness();
-  const task = { id: 'cancelled', cancelled: true };
+  const task = { id: 'cancelled' };
   const running = harness.executor.run(task, [], []);
   harness.child.stderr.emit('data', Buffer.from('ERROR: HTTP Error 403: Forbidden\n'));
+  task.cancelled = true;
+  const stopped = harness.executor.stop(task);
   harness.child.stderr.emit('error', new Error('broken pipe'));
   harness.child.emit('close', 1);
+  await stopped;
   await assert.rejects(running, error => error.message === '下载已取消');
   assert.equal(task.process, null);
-  assert.deepEqual(harness.child.killSignals, []);
+  assert.deepEqual(harness.child.killSignals, ['SIGTERM']);
 });
 
 test('falls back to killing the download when Windows taskkill exits unsuccessfully', { skip: process.platform !== 'win32' }, async () => {
@@ -139,14 +141,16 @@ test('falls back to killing the download when Windows taskkill exits unsuccessfu
   harness.child.pid = 4242;
   harness.child.exitCode = null;
   harness.child.signalCode = null;
-  const task = { id: 'taskkill-fallback', cancelled: true };
+  const task = { id: 'taskkill-fallback' };
   const running = harness.executor.run(task, [], []);
-  harness.executor.stop(task);
+  task.cancelled = true;
+  const stopped = harness.executor.stop(task);
   assert.equal(harness.spawned.command, 'taskkill');
   assert.deepEqual(harness.spawned.args, ['/pid', '4242', '/T', '/F']);
   terminator.emit('close', 1);
   assert.deepEqual(harness.child.killSignals, ['SIGTERM']);
   harness.child.emit('close', null, 'SIGTERM');
+  await stopped;
   await assert.rejects(running, error => error.message === '下载已取消');
   assert.equal(task.process, null);
 });

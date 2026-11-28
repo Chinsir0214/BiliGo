@@ -1,10 +1,20 @@
-param(
+﻿param(
     [switch] $VerifyOnly,
     [string] $ToolsDirectory
 )
 
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 Set-StrictMode -Version Latest
+
+$webRequestOptions = @{ UseBasicParsing = $true }
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+} elseif ($PSVersionTable.PSVersion -ge [version]'7.1') {
+    $webRequestOptions.SslProtocol = 'Tls12,Tls13'
+} else {
+    $webRequestOptions.SslProtocol = 'Tls12'
+}
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $manifestPath = Join-Path $repoRoot 'tools/tool-versions.json'
@@ -44,7 +54,17 @@ function Test-Sha256([string] $Path, [string] $Expected) {
 function Get-VerifiedFile([string] $Url, [string] $Destination, [string] $Expected) {
     if ($Url -notmatch '^https://github\.com/') { throw "Unexpected download host: $Url" }
     Write-Host "Downloading $Url"
-    Invoke-WebRequest -Uri $Url -OutFile $Destination -MaximumRedirection 10
+    for ($retry = 0; $retry -le 3; $retry++) {
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $Destination -MaximumRedirection 10 -TimeoutSec 120 @webRequestOptions
+            break
+        } catch {
+            if ($retry -eq 3) { throw }
+            $delay = [int][Math]::Pow(2, $retry)
+            Write-Warning "Download failed. Retrying in $delay second(s): $($_.Exception.Message)"
+            Start-Sleep -Seconds $delay
+        }
+    }
     Assert-Sha256 $Destination $Expected
 }
 
@@ -90,16 +110,17 @@ try {
         Assert-Sha256 $ffmpegStage $manifest.ffmpeg.sha256
     }
 
-    if (-not $ytValid) {
-        Move-Item -LiteralPath $ytStage -Destination $ytPath -Force
-    }
-    if (-not $ffmpegValid) {
-        Move-Item -LiteralPath $ffmpegStage -Destination $ffmpegPath -Force
+    try {
+        if (-not $ytValid) {
+            Move-Item -LiteralPath $ytStage -Destination $ytPath -Force
+        }
+        if (-not $ffmpegValid) {
+            Move-Item -LiteralPath $ffmpegStage -Destination $ffmpegPath -Force
+        }
+    } catch [System.IO.IOException], [System.UnauthorizedAccessException] {
+        throw "无法替换工具文件。请先关闭正在运行的 BiliGo/ffmpeg，再重试。$($_.Exception.Message)"
     }
     Write-Host 'Bundled tools match tools/tool-versions.json.'
 } finally {
-    foreach ($path in @($ytStage, $ffmpegArchive, $ffmpegStage)) {
-        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
-    }
-    if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage }
+    Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
 }

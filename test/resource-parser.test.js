@@ -274,14 +274,20 @@ test('AV video metadata uses the view API and retains top-level cid subtitles', 
     }
   });
   const url = 'https://www.bilibili.com/video/av123';
-  const result = await resourceParser.parseResource(url);
-  assert.deepEqual(requests, [{
-    url: 'https://api.bilibili.com/x/web-interface/view?aid=123',
-    options: { headers: { Cookie: 'SESSDATA=test' } }
-  }]);
-  assert.deepEqual(subtitleCalls, [['BV123', 101]]);
+  const controller = new AbortController();
+  const result = await resourceParser.parseResource(url, { signal: controller.signal });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'https://api.bilibili.com/x/web-interface/view?aid=123');
+  assert.deepEqual(requests[0].options.headers, { Cookie: 'SESSDATA=test', Referer: 'https://www.bilibili.com/' });
+  assert.equal(requests[0].options.signal.aborted, false);
+  controller.abort();
+  assert.equal(requests[0].options.signal.reason, controller.signal.reason);
+  assert.equal(subtitleCalls.length, 1);
+  const [bvid, cid, { signal }] = subtitleCalls[0];
+  assert.deepEqual([bvid, cid], ['BV123', 101]);
+  assert.ok(signal instanceof AbortSignal);
   assert.deepEqual(result.items, [{
-    id: 'BV123', title: '单 P 视频', url, thumbnail: 'cover', duration: 10,
+    id: 'BV123', title: '单 P 视频', url, thumbnail: 'cover', duration: 10, unavailable: false,
     subtitleLanguages: [{ value: 'en:normal', label: 'English' }]
   }]);
 });
@@ -370,7 +376,9 @@ test('video metadata processing errors propagate instead of starting the fallbac
     spawn: () => { spawned = true; throw new Error('unexpected fallback'); }
   });
 
-  await assert.rejects(resourceParser.parseResource('https://www.bilibili.com/video/BV123'), TypeError);
+  await assert.rejects(resourceParser.parseResource('https://www.bilibili.com/video/BV123'), {
+    name: 'Error', message: '视频分 P 信息无效'
+  });
   assert.equal(spawned, false);
 });
 

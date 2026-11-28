@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { createUpdateChecker } = require('../src/update');
+const { createUpdateChecker, isNewerVersion } = require('../src/update');
 
 test('uses the published updater version when available', async () => {
   const calls = [];
@@ -55,4 +55,17 @@ test('rejects a release without a version rather than claiming the app is curren
     requestJson: async () => ({ name: 'Latest build' })
   });
   await assert.rejects(check(), /更新检查失败：发布版本缺少版本号/);
+});
+
+test('compares prerelease versions by SemVer precedence', () => {
+  const cases = [
+    ['1.4.4-rc.1', '1.4.4', false],
+    ['1.4.4', '1.4.4-rc.1', true],
+    ['1.4.4-rc.2', '1.4.4-rc.1', true],
+    ['1.4.4-rc.10', '1.4.4-rc.2', true],
+    ['1.4.4-beta.1', '1.4.4-alpha.9', true]
+  ];
+  for (const [latest, current, newer] of cases) {
+    assert.equal(isNewerVersion(latest, current), newer, `${latest} compared with ${current}`);
+  }
 });

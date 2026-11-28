@@ -1,21 +1,5 @@
-/* Shared tokens and application shell */
+/* Application shell */
 :root {
-  --font-ui: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-
-  --ink: #191919;
-  --muted: #888;
-  --line: #e6e6e2;
-  --soft: #f0f0ed;
-  --accent: #222;
-  --surface: #fff;
-  --canvas: #f7f7f5;
-  --control-border: #deded9;
-  --radius-control: 4px;
-  --radius-option: 8px;
-
-  --sidebar-width: 220px;
-  --content-gutter: clamp(24px, 6.5vw, 96px);
-
   color: var(--ink);
   background: var(--canvas);
   font-family: var(--font-ui);
@@ -25,7 +9,7 @@
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: #aaa9a3 transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 body {
@@ -68,16 +52,16 @@ body {
 
 .sidebar {
   position: fixed;
-  z-index: 10;
+  z-index: var(--z-sidebar);
   inset: 0 auto 0 0;
   display: flex;
   flex-direction: column;
   width: var(--sidebar-width);
   padding: 28px 18px 22px;
   overflow: hidden auto;
-  background: #202020;
+  background: var(--sidebar);
   color: var(--surface);
-  scrollbar-color: #555 transparent;
+  scrollbar-color: var(--sidebar-line) transparent;
 }
 
 .brand {
@@ -97,17 +81,17 @@ body {
   width: 27px;
   height: 27px;
   margin-right: 8px;
-  border-radius: 7px;
+  border-radius: var(--radius-nav);
   background: var(--surface);
-  color: #202020;
+  color: var(--sidebar);
   font-size: 16px;
 }
 
 .brand small {
   width: 100%;
   margin: 13px 0 42px;
-  color: #747474;
-  font-size: 8px;
+  color: var(--sidebar-muted);
+  font-size: 11px;
   font-weight: 400;
   letter-spacing: 1.4px;
 }
@@ -121,9 +105,9 @@ body {
   margin: 2px 0;
   padding: 13px 12px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-nav);
   background: transparent;
-  color: #858585;
+  color: var(--sidebar-muted);
   font-size: 13px;
   font-weight: 600;
   text-align: left;
@@ -132,7 +116,7 @@ body {
 
 .nav-item:hover,
 .nav-item.active {
-  background: #303030;
+  background: var(--sidebar-active);
   color: var(--surface);
 }
 
@@ -142,8 +126,8 @@ body {
 
 .account-label,
 .version {
-  color: #666;
-  font-size: 10px;
+  color: var(--sidebar-muted);
+  font-size: 11px;
   letter-spacing: .5px;
 }
 
@@ -157,7 +141,7 @@ body {
   align-items: center;
   gap: 9px;
   padding: 13px 10px;
-  border-block: 1px solid #343434;
+  border-block: 1px solid var(--sidebar-line);
   font-size: 11px;
 }
 
@@ -168,8 +152,8 @@ body {
   width: 25px;
   height: 25px;
   overflow: hidden;
-  border: 1px solid #555;
-  border-radius: 50%;
+  border: 1px solid var(--sidebar-line);
+  border-radius: var(--radius-circle);
 }
 
 .avatar img {
@@ -195,21 +179,25 @@ body {
   padding: 18px 10px 0;
 }
 
-.version span {
+.version-separator {
   margin-inline: 3px;
-  color: #444;
+  color: var(--sidebar-muted);
 }
 
 .main-content {
   flex: 1;
   min-width: 0;
   height: 100vh;
+  scroll-padding-block-start: 112px;
   margin-left: var(--sidebar-width);
   padding: 0 var(--content-gutter) 48px;
   overflow: hidden auto;
 }
 
 .topbar {
+  position: sticky;
+  z-index: var(--z-topbar);
+  top: 0;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -223,8 +211,8 @@ body {
 .hero-kicker,
 .section-index,
 .settings-section-title {
-  color: #999;
-  font-size: 10px;
+  color: var(--muted);
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 1.4px;
 }
@@ -260,20 +248,31 @@ body {
   .brand,
   .nav-item {
     justify-content: center;
-    font-size: 0;
   }
 
   .brand {
     padding: 0;
+    margin-bottom: 42px;
   }
 
   .brand-mark {
     margin-right: 0;
   }
 
+  .brand-name,
   .brand small {
-    font-size: 0;
+    display: none;
   }
+
+  .nav-item [data-label] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
 
   .nav-item {
     gap: 0;
@@ -333,16 +332,18 @@ body {
 /* Dialogs and transient feedback */
 .modal {
   position: fixed;
-  z-index: 30;
+  z-index: var(--z-modal);
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgb(20 20 20 / 43%);
+  background: var(--backdrop);
 }
 
 .modal-card {
   position: relative;
   width: min(370px, calc(100vw - 30px));
+  max-height: calc(100vh - 30px);
+  overflow-y: auto;
   padding: 31px 34px 28px;
   background: var(--surface);
   text-align: center;
@@ -361,7 +362,7 @@ body {
 
 .modal-copy {
   margin: 0 auto 22px;
-  color: #999;
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.7;
 }
@@ -381,7 +382,7 @@ body {
 
 .login-hint {
   margin-bottom: 16px;
-  color: #777;
+  color: var(--muted);
   font-size: 11px;
 }
 
@@ -398,6 +399,7 @@ body {
 
 .toast {
   position: fixed;
+  z-index: var(--z-toast);
   bottom: 25px;
   left: 50%;
   padding: 11px 17px;

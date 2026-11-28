@@ -1,11 +1,17 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const allowedEvents = new Set([
+  'login:success', 'login:scanned', 'login:expired', 'login:error',
+  'download:progress', 'download:done', 'app:error'
+]);
+
 contextBridge.exposeInMainWorld('bili', {
   startLogin: () => ipcRenderer.invoke('login:start'),
   cancelLogin: () => ipcRenderer.invoke('login:cancel'),
   loginStatus: () => ipcRenderer.invoke('login:status'),
   logout: () => ipcRenderer.invoke('login:logout'),
   startDownload: data => ipcRenderer.invoke('download:start', data),
+  startDownloads: items => ipcRenderer.invoke('download:start-batch', items),
   parseResource: url => ipcRenderer.invoke('resource:parse', url),
   appVersion: () => ipcRenderer.invoke('app:version'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
@@ -23,5 +29,11 @@ contextBridge.exposeInMainWorld('bili', {
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
   setSettings: changes => ipcRenderer.invoke('settings:set', changes),
   chooseDownloadDir: () => ipcRenderer.invoke('settings:chooseDir'),
-  on: (channel, callback) => { const allowed = ['login:success', 'login:scanned', 'login:expired', 'login:error', 'download:progress', 'download:done', 'app:error']; if (allowed.includes(channel)) ipcRenderer.on(channel, (_, data) => callback(data)); }
+  on(channel, callback) {
+    if (!allowedEvents.has(channel)) throw new TypeError('事件通道无效');
+    if (typeof callback !== 'function') throw new TypeError('事件回调必须为函数');
+    const listener = (_, data) => callback(data);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  }
 });

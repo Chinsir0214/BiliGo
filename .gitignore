@@ -25,3 +25,16 @@ settings.json
 *.key
 .DS_Store
 Thumbs.db
+
+# Temporary artifacts and local development tools
+.tmp/
+qa/
+layout-audit/
+.codegraph/
+.serena/
+.omo/
+.claude/
+.codex/
+.cursor/
+opencode.json
+tools/codex-lsp-mcp.mjs

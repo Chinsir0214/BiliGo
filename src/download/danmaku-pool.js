@@ -4,6 +4,7 @@ const { Worker } = require('node:worker_threads');
 function createDanmakuWorkerPool({ limit = Math.max(1, Math.min(2, availableParallelism() - 1)), idleMs = 5000 } = {}) {
   const workers = new Set();
   const pending = [];
+  let closing;
 
   function settle(job, error, bytes) {
     job.signal?.removeEventListener('abort', job.abort);
@@ -13,19 +14,20 @@ function createDanmakuWorkerPool({ limit = Math.max(1, Math.min(2, availablePara
   }
 
   function stop(slot) {
-    if (slot.stopping) return;
+    if (slot.termination) return slot.termination;
     slot.stopping = true;
     clearTimeout(slot.timer);
-    void slot.worker.terminate();
+    slot.termination = slot.worker.terminate();
+    return slot.termination;
   }
 
   function startWorker() {
     const worker = new Worker(require.resolve('./danmaku-worker'));
     const slot = { worker, job: null, stopping: false, timer: null, failure: null };
     workers.add(slot);
-    worker.on('message', bytes => {
+    worker.on('message', ({ ok, bytes, message }) => {
       if (slot.stopping) return;
-      settle(slot.job, null, bytes);
+      settle(slot.job, ok ? null : new Error(message), bytes);
       slot.job = null;
       worker.unref();
       slot.timer = setTimeout(() => stop(slot), idleMs).unref();
@@ -42,7 +44,7 @@ function createDanmakuWorkerPool({ limit = Math.max(1, Math.min(2, availablePara
   }
 
   function pump() {
-    while (pending.length) {
+    while (!closing && pending.length) {
       let slot = [...workers].find(candidate => !candidate.job && !candidate.stopping);
       if (!slot && workers.size >= limit) return;
       const job = pending.shift();
@@ -66,12 +68,16 @@ function createDanmakuWorkerPool({ limit = Math.max(1, Math.min(2, availablePara
   function decode(body, encoding, maxBytes, signal) {
     return new Promise((resolve, reject) => {
       signal?.throwIfAborted();
+      if (closing) throw new Error('弹幕处理线程池已关闭');
       const job = { input: { body, encoding, maxBytes }, signal, resolve, reject, slot: null };
       job.abort = () => {
         if (job.slot) stop(job.slot);
         else {
-          pending.splice(pending.indexOf(job), 1);
-          settle(job);
+          const index = pending.indexOf(job);
+          if (index !== -1) {
+            pending.splice(index, 1);
+            settle(job);
+          }
         }
       };
       signal?.addEventListener('abort', job.abort, { once: true });
@@ -80,7 +86,19 @@ function createDanmakuWorkerPool({ limit = Math.max(1, Math.min(2, availablePara
     });
   }
 
-  return { decode };
+  function shutdown() {
+    if (!closing) {
+      const error = new Error('弹幕处理线程池已关闭');
+      for (const job of pending.splice(0)) settle(job, error);
+      closing = Promise.all([...workers].map(slot => {
+        slot.failure = error;
+        return stop(slot);
+      }));
+    }
+    return closing;
+  }
+
+  return { decode, shutdown, destroy: shutdown };
 }
 
 module.exports = { createDanmakuWorkerPool };

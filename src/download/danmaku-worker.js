@@ -29,7 +29,7 @@ function validateDanmakuXml(source) {
   const closingTag = new RegExp(`<\/(${name})\\s*>`, 'y');
   const openingTag = new RegExp(`<(${name})((?:\\s+${name}\\s*=\\s*(?:"[^"<]*"|'[^'<]*'))*)\\s*(\\/?)>`, 'y');
   const attribute = new RegExp(`\\s+(${name})\\s*=\\s*(?:"([^"<]*)"|'([^'<]*)')`, 'y');
-  const entity = /&(?:amp|lt|gt|quot|apos|#([0-9]+)|#x([0-9a-f]+));/iy;
+  const entity = /&(?:amp|lt|gt|quot|apos|#([0-9]+)|#x([0-9a-fA-F]+));/y;
   const validEntities = value => {
     for (let amp = value.indexOf('&'); amp !== -1; amp = value.indexOf('&', entity.lastIndex)) {
       entity.lastIndex = amp;
@@ -43,7 +43,7 @@ function validateDanmakuXml(source) {
   };
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/.test(source)) invalid();
   if (source.startsWith('<?xml')) {
-    const declaration = /^<\?xml\s+version\s*=\s*(?:"1\.[01]"|'1\.[01]')(?:\s+encoding\s*=\s*(?:"UTF-8"|'UTF-8'))?(?:\s+standalone\s*=\s*(?:"(?:yes|no)"|'(?:yes|no)'))?\s*\?>/.exec(source);
+    const declaration = /^<\?xml\s+version\s*=\s*(?:"1\.[01]"|'1\.[01]')(?:\s+encoding\s*=\s*(?:"[Uu][Tt][Ff]-8"|'[Uu][Tt][Ff]-8'))?(?:\s+standalone\s*=\s*(?:"(?:yes|no)"|'(?:yes|no)'))?\s*\?>/.exec(source);
     if (!declaration) invalid();
     pos = declaration[0].length;
   }
@@ -60,7 +60,7 @@ function validateDanmakuXml(source) {
       const end = source.indexOf('-->', pos + 4);
       if (end === -1) invalid();
       const comment = source.slice(pos + 4, end);
-      if (comment.includes('--') || comment.includes('<!--') || comment.endsWith('-')) invalid();
+      if (comment.includes('--') || comment.endsWith('-')) invalid();
       pos = end + 3;
       continue;
     }
@@ -96,7 +96,7 @@ function validateDanmakuXml(source) {
   if (!rootClosed || stack.length) invalid();
 }
 
-parentPort.on('message', ({ body, encoding, maxBytes }) => {
+function decodeMessage({ body, encoding, maxBytes }) {
   const decoded = decodeBody(new Uint8Array(body), encoding, maxBytes);
   if (decoded.byteLength > maxBytes) throw new Error('弹幕响应解压后过大');
   // The original decoder consumed a UTF-8 BOM, then the XML validator stripped a second one.
@@ -108,8 +108,17 @@ parentPort.on('message', ({ body, encoding, maxBytes }) => {
   catch (error) { throw new Error(`弹幕响应解码失败：${error.message}`); }
   validateDanmakuXml(xml);
   // Small zlib results can share a larger buffer. Only transfer storage owned by this response.
-  if (decoded.byteOffset || decoded.byteLength !== decoded.buffer.byteLength || isMarkedAsUntransferable(decoded.buffer)) {
+  if (bytes.byteOffset || bytes.byteLength !== bytes.buffer.byteLength || isMarkedAsUntransferable(bytes.buffer)) {
     bytes = new Uint8Array(bytes);
   }
-  parentPort.postMessage(bytes, [bytes.buffer]);
+  return bytes;
+}
+
+parentPort.on('message', input => {
+  try {
+    const bytes = decodeMessage(input);
+    parentPort.postMessage({ ok: true, bytes }, [bytes.buffer]);
+  } catch (error) {
+    parentPort.postMessage({ ok: false, message: error.message });
+  }
 });

@@ -1,5 +1,6 @@
+const { randomUUID } = require('node:crypto');
 const { DOWNLOAD_DEFAULTS, AUDIO_FORMATS, CONTAINER_FORMATS, normalizeVideoQuality } = require('./constants');
-const { getMediaCapabilities, normalizeContentModes, normalizeFragmentThreads } = require('./options');
+const { getMediaCapabilities, parseRetryCount, normalizeContentModes, normalizeFragmentThreads } = require('./options');
 
 const PERSISTED_TASK_FIELDS = [
   'id', 'url', 'urls', 'itemTitles', 'title', 'thumbnail', 'folderName', 'resourceType',
@@ -9,7 +10,7 @@ const PERSISTED_TASK_FIELDS = [
   'fragmentThreads', 'queuedAt'
 ];
 
-function createDownloadTask(data, info, settings, id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`) {
+function createDownloadTask(data, info, settings, id = randomUUID()) {
   const selectedAudioFormat = data.audioFormat || settings.audioFormat;
   const selectedContainer = data.containerFormat || settings.containerFormat;
   const contentModes = normalizeContentModes(data.contentModes?.length ? data.contentModes : settings.contentModes?.length ? settings.contentModes : [data.mode || 'video-audio']);
@@ -37,7 +38,7 @@ function createDownloadTask(data, info, settings, id = `${Date.now()}-${Math.ran
     embedSubs: hasVideo && (data.embedSubs ?? settings.embedSubs),
     subtitleLangs: data.subtitleLangs || settings.subtitleLangs || DOWNLOAD_DEFAULTS.subtitleLangs,
     rateLimit: data.rateLimit ?? settings.rateLimit,
-    retries: data.retries || settings.retries || DOWNLOAD_DEFAULTS.retries,
+    retries: parseRetryCount(data.retries ?? settings.retries) ?? DOWNLOAD_DEFAULTS.retries,
     fragmentThreads: normalizeFragmentThreads(fragmentThreads),
     queuedAt: new Date().toISOString()
   };
@@ -47,4 +48,8 @@ function serializeTaskForQueue(task) {
   return Object.fromEntries(PERSISTED_TASK_FIELDS.map(field => [field, task[field]]));
 }
 
-module.exports = { createDownloadTask, serializeTaskForQueue };
+function taskError(code, message, cause) {
+  return Object.assign(new Error(message, { cause }), { code });
+}
+
+module.exports = { taskError, createDownloadTask, serializeTaskForQueue };

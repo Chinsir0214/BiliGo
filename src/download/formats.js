@@ -1,5 +1,5 @@
 const { AUDIO_FORMATS, DOWNLOAD_DEFAULTS } = require('./constants');
-const { getMediaCapabilities, normalizeContentModes, normalizeFragmentThreads, parseRetryCount } = require('./options');
+const { getMediaCapabilities, normalizeFragmentThreads, parseRetryCount } = require('./options');
 
 function limitRateArg(value) {
   const match = String(value || '').trim().match(/^([\d.]+)\s*(kbps|k|mbps|m|gbps|g)?$/i);
@@ -8,7 +8,7 @@ function limitRateArg(value) {
   if (!Number.isFinite(amount) || amount <= 0) return '';
   const unit = (match[2] || 'kbps').toLowerCase();
   const bitsPerSecond = unit === 'g' || unit === 'gbps' ? amount * 1000000000 : unit === 'm' || unit === 'mbps' ? amount * 1000000 : amount * 1000;
-  return `${Math.round(bitsPerSecond / 8)}B`;
+  return `${Math.max(1, Math.round(bitsPerSecond / 8))}B`;
 }
 
 function ytdlpDownloadArgs(task, modes = [], resolveFfmpeg) {
@@ -30,4 +30,29 @@ function audioFormatArgs(task, args) {
   if (format !== 'original' && format !== 'flac') args.push('--extract-audio', '--audio-format', format);
 }
 
-module.exports = { normalizeContentModes, limitRateArg, parseRetryCount, ytdlpDownloadArgs, audioFormatArgs };
+function buildDownloadSteps(task, output, resolveFfmpeg) {
+  const modes = task.contentModes;
+  const { mediaMode, hasVideo, hasMedia } = getMediaCapabilities(modes);
+  if (!hasMedia && !modes.some(mode => mode === 'cover' || mode === 'subtitle')) return [];
+  const common = ytdlpDownloadArgs(task, modes, resolveFfmpeg);
+  const embedSubs = task.embedSubs && hasVideo;
+  const subtitles = ['--sub-langs', task.subtitleLangs || 'all', '--sub-format', 'vtt'];
+  const steps = [];
+  if (hasMedia) {
+    const args = [...common];
+    const video = task.videoQuality === 'bv*' ? 'bv' : task.videoQuality || 'bv';
+    if (mediaMode === 'audio') audioFormatArgs(task, args);
+    else if (mediaMode === 'video') args.push('-f', video);
+    else args.push('-f', video + '+' + (task.audioQuality || 'ba/b'), '--merge-output-format', task.containerFormat || 'mp4');
+    if (task.embedThumbnail) args.push('--embed-thumbnail');
+    if (task.embedMetadata) args.push('--add-metadata');
+    if (task.embedChapters) args.push('--embed-chapters');
+    if (embedSubs) args.push('--write-subs', '--embed-subs', ...subtitles);
+    steps.push([...args, '-o', output]);
+  }
+  if (modes.includes('cover')) steps.push([...common, '--skip-download', '--write-thumbnail', '--convert-thumbnails', 'jpg', '-o', output]);
+  if (modes.includes('subtitle') && !embedSubs) steps.push([...common, '--write-subs', ...subtitles, '--skip-download', '-o', output]);
+  return steps;
+}
+
+module.exports = { limitRateArg, ytdlpDownloadArgs, audioFormatArgs, buildDownloadSteps };

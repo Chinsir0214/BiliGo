@@ -1,8 +1,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { DOWNLOAD_DEFAULTS } = require('../src/download/constants');
-const { limitRateArg, parseRetryCount, ytdlpDownloadArgs, audioFormatArgs } = require('../src/download/formats');
-const { getMediaCapabilities } = require('../src/download/options');
+const { limitRateArg, ytdlpDownloadArgs, audioFormatArgs } = require('../src/download/formats');
+const { getMediaCapabilities, parseRetryCount } = require('../src/download/options');
 const { validateDownloadData } = require('../src/download/request');
 const { createDownloadTask, serializeTaskForQueue } = require('../src/download/task');
 const { createDownloadQueue } = require('../src/download/queue');
@@ -20,6 +20,8 @@ test('normalizes valid content modes and rejects invalid download requests', () 
   const validate = options => validateDownloadData({ url, ...options }, requestValidation);
   assert.deepEqual(validate({ contentModes: 'video+audio, cover, cover, subtitle' }).contentModes, ['video-audio', 'cover', 'subtitle']);
   assert.deepEqual(validate({ mode: 'video', embedSubs: true }).contentModes, ['video']);
+  assert.throws(() => validate({ contentModes: ['video'], itemTitles: '标题' }), TypeError);
+  assert.deepEqual(validate({ contentModes: ['video'], itemTitles: ['标题', 2] }).itemTitles, ['标题', '2']);
   assert.throws(() => validateDownloadData(null, requestValidation), /下载参数无效/);
   assert.throws(() => validate({ contentModes: [] }), /下载内容类型无效/);
   assert.throws(() => validate({ contentModes: ['unknown'] }), /下载内容类型无效/);
@@ -32,7 +34,7 @@ test('accepts only integer retry counts from 1 through 10 at request and command
   const validate = retries => validateDownloadData({ url, contentModes: ['video'], retries }, requestValidation);
   for (const value of [1, '1', 3, '3', 10, '10']) {
     assert.equal(parseRetryCount(value), Number(value));
-    assert.equal(validate(value).retries, String(value));
+    assert.equal(validate(value).retries, Number(value));
     const args = ytdlpDownloadArgs({ retries: value }, ['video'], () => 'ffmpeg');
     assert.equal(args[args.indexOf('--retries') + 1], String(value));
     assert.equal(args[args.indexOf('--fragment-retries') + 1], String(value));
@@ -55,7 +57,7 @@ test('yt-dlp download arguments abort unavailable fragments and back off HTTP an
 });
 
 test('auxiliary content preserves the selected media capabilities', async () => {
-  const { validateDownloadForm } = await import('../src/download/form.js');
+  const { validateDownloadForm } = await import('../src/download/form.mjs');
   const extras = ['cover', 'subtitle', 'danmaku'];
   const form = { selectedItems: [{}], subtitleValues: ['zh-Hans:normal'], embedSubs: true };
 
@@ -77,7 +79,7 @@ test('auxiliary content preserves the selected media capabilities', async () => 
 });
 
 test('uses one fragment thread value in settings, form requests, tasks and command arguments', async () => {
-  const { buildDownloadRequest } = await import('../src/download/form.js');
+  const { buildDownloadRequest } = await import('../src/download/form.mjs');
   for (const [value, expected] of [
     [1, 1], ['2.5', 2], [16, 16], ['100', 16], [0, 4], [-1, 4],
     ['', 4], [null, 4], [true, 4], ['bad', 4], [Infinity, 4]
@@ -112,7 +114,7 @@ test('creates a task from request data and settings', () => {
 });
 
 test('download form builds a request without UI-only state', async () => {
-  const { buildDownloadRequest } = await import('../src/download/form.js');
+  const { buildDownloadRequest } = await import('../src/download/form.mjs');
   const request = buildDownloadRequest({
     sourceUrl: 'https://www.bilibili.com/video/BV1',
     selectedItems: [{ title: '示例' }],
@@ -135,6 +137,37 @@ test('download form builds a request without UI-only state', async () => {
     embedSubs: true,
     fragmentThreads: 8
   });
+});
+
+test('batch submission sends one request list and reports each matching task', async () => {
+  const { enqueueBatchItems } = await import('../src/download/submit.mjs');
+  const entries = ['A', 'B'];
+  const tasks = [{ id: 'first' }, { id: 'second' }];
+  const submissions = [];
+  const queued = [];
+  const submit = items => enqueueBatchItems(items, title => ({ title }), async requests => {
+    submissions.push(requests);
+    return { tasks };
+  }, (entry, task) => queued.push([entry, task]));
+
+  assert.deepEqual(await submit([]), { queued: 0, remaining: 0, error: null });
+  assert.deepEqual(await submit(entries), { queued: 2, remaining: 0, error: null });
+  assert.deepEqual(submissions, [[{ title: 'A' }, { title: 'B' }]]);
+  assert.deepEqual(queued, [['A', tasks[0]], ['B', tasks[1]]]);
+});
+
+test('batch submission keeps all entries pending when the queue rejects or returns incomplete tasks', async () => {
+  const { enqueueBatchItems } = await import('../src/download/submit.mjs');
+  const entries = ['A', 'B'];
+  const failure = new Error('queue unavailable');
+  const submit = startDownloads => enqueueBatchItems(entries, entry => entry, startDownloads,
+    () => assert.fail('Unconfirmed task reported as queued'));
+
+  assert.deepEqual(await submit(async () => { throw failure; }), { queued: 0, remaining: 2, error: failure });
+  const incomplete = await submit(async () => ({ tasks: [{ id: 'first' }, {}] }));
+  assert.equal(incomplete.queued, 0);
+  assert.equal(incomplete.remaining, 2);
+  assert.match(incomplete.error.message, /任务编号/);
 });
 
 test('queue serialization preserves task options without runtime state', () => {
@@ -164,18 +197,35 @@ test('queue serialization preserves task options without runtime state', () => {
 });
 
 test('queue respects concurrency and completes queued work', async () => {
-  const running = new Set(); let peak = 0; const completed = [];
+  const releaseFirst = Promise.withResolvers();
+  const releaseSecond = Promise.withResolvers();
+  const thirdStarted = Promise.withResolvers();
+  const drained = Promise.withResolvers();
+  const started = [];
+  const completed = [];
   const queue = createDownloadQueue({
-    read: () => [], write: () => {}, serialize: task => task,
+    read: () => [], serialize: task => task,
+    write: entries => { if (entries.length === 0) drained.resolve(); },
     maxConcurrency: () => 2,
-    processTask: async task => { running.add(task.id); peak = Math.max(peak, running.size); await new Promise(resolve => setTimeout(resolve, 5)); running.delete(task.id); completed.push(task.id); }
+    processTask: async ({ id }) => {
+      started.push(id);
+      if (id === 'a') await releaseFirst.promise;
+      if (id === 'b') await releaseSecond.promise;
+      if (id === 'c') thirdStarted.resolve();
+      completed.push(id);
+    }
   });
-  queue.enqueue({ id: 'a', url: 'a', contentModes: ['video'] });
-  queue.enqueue({ id: 'b', url: 'b', contentModes: ['video'] });
-  queue.enqueue({ id: 'c', url: 'c', contentModes: ['video'] });
-  await new Promise(resolve => setTimeout(resolve, 30));
-  assert.equal(peak, 2);
-  assert.deepEqual(completed.sort(), ['a', 'b', 'c']);
+  for (const id of ['a', 'b', 'c']) {
+    queue.enqueue({ id, url: id, contentModes: ['video'] });
+  }
+  assert.deepEqual(started, ['a', 'b']);
+  releaseFirst.resolve();
+  await thirdStarted.promise;
+  assert.deepEqual(completed, ['a', 'c']);
+  releaseSecond.resolve();
+  await drained.promise;
+  assert.deepEqual(completed, ['a', 'c', 'b']);
+  assert.equal(queue.activeTasks.size, 0);
 });
 
 test('queue can cancel a queued task', () => {

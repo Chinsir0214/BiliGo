@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0
+
+- Hardened local path and IPC validation: `shell:open` now requires an existing directory, `video:play-local` requires a regular playable media file, shell open errors are surfaced instead of ignored, CSP disables inline styles and external renderer connections, and Electron permission requests and webview attachments are blocked.
+- Added single-instance locking, atomic JSON writes with backup fallback and Windows rename retries, per-item queue recovery that isolates damaged entries instead of halting the queue, and single-write batch task submission.
+- Improved download workspace publishing, process lifecycle, danmaku decoding, and resource parsing: separated staging cleanup from commit failures, added cross-volume atomic copies and orphaned staging cleanup, added silent-stall timeouts and process-tree termination on cancel/quit, resolved `b23.tv` short links, preserved single-part titles and thumbnails, fixed SemVer prerelease update comparisons, and verified QR-login cookies before saving them to disk.
+- Split the renderer and main process into focused ES and CommonJS modules, added Enter-to-parse form submission, confirmation before clearing history, on-demand thumbnail loading, accessibility and WCAG contrast fixes, and fixed toast stacking and retry/account/settings async races.
+- Added recursive syntax checks (`npm run check`), TypeScript `checkJs` verification (`npm run typecheck`), tool hash verification (`npm run verify:tools`), expanded unit test coverage, and hardened CI and repository ignore rules.
+
 ## 1.4.4
 
 - Unified Chinese and Latin text across the Windows interface with Microsoft YaHei UI, falling back to Microsoft YaHei or the system sans-serif. Download percentages, speeds, remaining times, and media durations use tabular digits for easier comparison.

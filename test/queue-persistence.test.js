@@ -1,8 +1,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { createTempDir } = require('./helpers/test-env');
 const { createDownloadQueue } = require('../src/download/queue');
 const { createQueueStore } = require('../src/download/queue-store');
 
@@ -64,33 +64,44 @@ test('catches task setup and async failures even when reporting rejects', async 
   assert.equal(queue.activeTasks.size, 0);
 });
 
-test('atomic store reads legacy data and recovers a newer valid temporary snapshot', t => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'biligo-queue-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+test('atomic store prefers the primary snapshot, then the backup, then valid temporary files', t => {
+  const dir = createTempDir(t, 'biligo-queue-');
   const file = path.join(dir, 'queue.json');
   const store = createQueueStore(file);
   assert.deepEqual(store.read(), []);
   fs.writeFileSync(file, JSON.stringify([task('legacy')]));
   assert.deepEqual(store.read().map(value => value.id), ['legacy']);
+
   store.write([task('new')]);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['queue.json', 'queue.json.bak']);
+  const recovery = file + '.tmp-recovery';
+  fs.writeFileSync(recovery, JSON.stringify({ tasks: [{ task: task('recovered') }] }));
   assert.deepEqual(store.read().map(value => value.id), ['new']);
-  assert.deepEqual(fs.readdirSync(dir), ['queue.json']);
-
   fs.writeFileSync(file, '{broken');
+  assert.deepEqual(store.read().map(value => value.id), ['legacy']);
+
+  fs.writeFileSync(file + '.bak', '{broken');
+  const partial = file + '.tmp-broken';
+  fs.writeFileSync(partial, '{partial');
+  fs.utimesSync(recovery, 1, 1);
+  fs.utimesSync(partial, 2, 2);
+  assert.deepEqual(store.read().map(value => value.id), ['recovered']);
+  fs.unlinkSync(recovery);
   assert.throws(() => store.read(), /队列快照读取失败.*JSON 内容损坏/);
-  fs.writeFileSync(path.join(dir, 'queue.json.tmp-recovery'), JSON.stringify({ tasks: [{ task: task('recovered') }] }));
-  assert.deepEqual(store.read().map(value => value.id), ['recovered']);
-  fs.writeFileSync(path.join(dir, 'queue.json.tmp-broken'), '{partial');
-  assert.deepEqual(store.read().map(value => value.id), ['recovered']);
 });
 
-test('a directory enumeration failure cannot be treated as a missing queue', () => {
-  const denied = Object.assign(new Error('access denied'), { code: 'EACCES' });
-  const store = createQueueStore(path.resolve('queue.json'), {
-    fs: { readdirSync() { throw denied; } }
+for (const operation of ['readFileSync', 'readdirSync', 'statSync']) {
+  test(`queue recovery propagates access errors from ${operation}`, () => {
+    const denied = Object.assign(new Error('access denied'), { code: 'EACCES' });
+    const fileSystem = {
+      readFileSync() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+      readdirSync() { return ['queue.json.tmp-recovery']; },
+      [operation]() { throw denied; }
+    };
+    const store = createQueueStore(path.resolve('queue.json'), { fs: fileSystem });
+    assert.throws(() => store.read(), { code: 'EACCES', cause: denied });
   });
-  assert.throws(() => store.read(), { code: 'EACCES', cause: denied });
-});
+}
 
 test('completion persistence retries with backoff before starting the next worker', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -195,4 +206,35 @@ test('a failed cancellation save restores the waiting task', () => {
   assert.throws(() => queue.cancelQueued('waiting'), /disk full/);
   assert.equal(queue.downloadQueue[0].id, 'waiting');
   assert.equal(queue.downloadQueue[0].cancelled, false);
+});
+
+test('recovers the valid tasks on both sides of a damaged snapshot entry', t => {
+  const file = path.join(createTempDir(t, 'biligo-queue-'), 'queue.json');
+  const store = createQueueStore(file);
+  const first = task('first');
+  const last = task('last');
+  fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, tasks: [first, null, last] }));
+
+  assert.deepEqual(store.read(), [first, last]);
+  const rejected = JSON.parse(fs.readFileSync(file + '.rejected.json', 'utf8'));
+  assert.deepEqual(rejected.map(({ index, entry }) => [index, entry]), [[1, null]]);
+});
+
+test('enqueueMany persists running and waiting tasks together in a single write', async t => {
+  const file = path.join(createTempDir(t, 'biligo-queue-'), 'queue.json');
+  const store = createQueueStore(file);
+  const write = t.mock.fn(store.write);
+  const queue = createDownloadQueue({
+    read: store.read, write, serialize: value => value,
+    processTask: async () => {}, maxConcurrency: () => 2
+  });
+  const tasks = ['a', 'b', 'c'].map(task);
+  assert.equal(queue.enqueueMany(tasks), 3);
+  assert.equal(write.mock.callCount(), 1);
+  assert.deepEqual(store.read(), [
+    { ...tasks[0], queueStatus: 'running' },
+    { ...tasks[1], queueStatus: 'running' },
+    { ...tasks[2], queueStatus: 'queued' }
+  ]);
+  await tick();
 });

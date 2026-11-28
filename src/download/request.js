@@ -19,13 +19,15 @@ function validateDownloadData(data, { assertBilibiliUrl, isAllowedLocalPath }) {
   const videoQuality = normalizeVideoQuality(data.videoQuality);
   if (videoQuality !== undefined && !VIDEO_QUALITIES.has(String(videoQuality))) throw new Error('视频画质无效');
   if (data.audioQuality !== undefined && !AUDIO_QUALITIES.has(String(data.audioQuality))) throw new Error('音频质量无效');
+  if (data.itemTitles !== undefined && !Array.isArray(data.itemTitles)) throw new TypeError('下载条目标题必须为数组');
   const retries = data.retries === undefined ? undefined : parseRetryCount(data.retries);
   if (retries === null) throw new Error('下载及分片重试次数无效：请输入 1–10 的整数');
   if (data.outputDir !== undefined && (!path.isAbsolute(String(data.outputDir)) || !isAllowedLocalPath(String(data.outputDir)))) throw new Error('下载目录不允许');
   return {
     ...data, url, urls, contentModes: modes,
+    ...(data.itemTitles === undefined ? {} : { itemTitles: Array.from(data.itemTitles, String) }),
     ...(videoQuality === undefined ? {} : { videoQuality }),
-    ...(retries === undefined ? {} : { retries: String(retries) }),
+    ...(retries === undefined ? {} : { retries }),
     ...(data.fragmentThreads === undefined ? {} : { fragmentThreads: normalizeFragmentThreads(data.fragmentThreads) })
   };
 }

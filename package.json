@@ -1,12 +1,17 @@
 {
   "name": "bili-go",
-  "version": "1.4.4",
+  "version": "1.5.0",
   "description": "A focused Bilibili downloader powered by yt-dlp and ffmpeg.",
   "main": "src/main.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/tools.js && node --check src/renderer.js && node --check src/settings.js && node --check src/local-data.js && node --check src/security.js && node --check src/resource/parser.js && node --check src/resource/video-info.js && node --check src/auth/session.js && node --check src/auth/login-cookies.js && node --check src/download/constants.js && node --check src/download/options.js && node --check src/download/formats.js && node --check src/download/form.js && node --check src/download/submit.js && node --check src/download/request.js && node --check src/download/task.js && node --check src/download/queue.js && node --check src/download/queue-store.js && node --check src/download/file-workspace.js && node --check src/download/executor.js && node --check src/download/danmaku.js && node --check src/download/danmaku-pool.js && node --check src/download/danmaku-worker.js && node --check src/download/allowed-roots.js && node --check src/download/destination.js && node --check src/update.js",
+    "check": "node scripts/check-syntax.js",
+    "typecheck": "tsc -p jsconfig.json --noEmit",
+    "verify:tools": "powershell -NoProfile -ExecutionPolicy RemoteSigned -File ./scripts/fetch-tools.ps1 -VerifyOnly",
     "test": "node --test test/*.test.js",
     "dist": "electron-builder --win"
   },
