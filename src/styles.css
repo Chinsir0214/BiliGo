@@ -204,6 +204,7 @@ body {
   padding: 32px 0 20px;
   border-bottom: 1px solid var(--line);
   background: var(--canvas);
+  box-shadow: 0 4px 12px -10px var(--shadow-menu);
   -webkit-app-region: drag;
 }
 
@@ -401,7 +402,7 @@ body {
   position: fixed;
   z-index: var(--z-toast);
   bottom: 25px;
-  left: 50%;
+  left: calc(50% + var(--sidebar-width) / 2);
   padding: 11px 17px;
   transform: translate(-50%, 20px);
   border-radius: var(--radius-control);
@@ -411,6 +412,10 @@ body {
   opacity: 0;
   pointer-events: none;
   transition: opacity .25s ease-out, transform .25s ease-out;
+}
+
+.app-shell[inert] ~ .toast {
+  left: 50%;
 }
 
 .toast.show {

@@ -22,7 +22,9 @@ export function createSettings(ctx) {
 
   function showDownloadDirectory(dir) {
     $('#downloadDirText').textContent = dir;
-    $('#destination').textContent = `保存至 ${dir}`;
+    const destination = $('#destination');
+    destination.textContent = `保存至 ${dir}`;
+    destination.title = destination.textContent;
   }
 
   function applySettings(settings) {

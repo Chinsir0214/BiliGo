@@ -43,10 +43,17 @@
   line-height: 1.5;
 }
 
+.input-foot > :first-child {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .input-foot > :last-child {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
   text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .section-heading {
@@ -585,6 +592,15 @@
       padding-block: 14px;
     }
 
+    .format-grid {
+      margin-top: 10px;
+      gap: 8px;
+    }
+
+    .input-foot {
+      margin-top: 8px;
+    }
+
     .selection-panel {
       margin-top: 6px;
     }
@@ -593,12 +609,18 @@
       margin-block: 6px;
     }
 
+    .selection-heading-info h2 {
+      font-size: 16px;
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+    }
+
     .selection-list {
-      max-height: min(100px, 14vh);
+      max-height: min(92px, 13vh);
     }
 
     .selection-download {
-      margin-top: 10px;
+      margin-top: 8px;
     }
   }
 }

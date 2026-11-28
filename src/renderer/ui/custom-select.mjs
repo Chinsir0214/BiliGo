@@ -39,8 +39,10 @@ export function initCustomSelect(wrapper, { select, multiple, emptyLabel, menuId
         item.setAttribute('aria-selected', String(chosen));
       });
     }
-    label.textContent = selected().map(item => item.textContent).join('、') || emptyLabel;
-    button.setAttribute('aria-label', fieldLabel + '：' + label.textContent);
+    const displayText = selected().map(item => item.textContent).join('、') || emptyLabel;
+    label.textContent = displayText;
+    button.title = displayText;
+    button.setAttribute('aria-label', fieldLabel + '：' + displayText);
   }
 
   function render(values) {

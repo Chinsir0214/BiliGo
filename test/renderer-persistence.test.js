@@ -93,6 +93,17 @@ function fixture(api = {}) {
   };
 }
 
+function taskFixture(api) {
+  const ctx = fixture(api);
+  ctx.document.createElement = () => {
+    const card = new Element();
+    for (const selector of ['.progress-track', '.task-percent', '.task-info', '.task-status',
+      '.task-title', '.task-meta', '[data-cancel-task]', '[data-open-video]', '[data-open-folder]']) card.part(selector);
+    return card;
+  };
+  return ctx;
+}
+
 test('queue readiness resolves immediately after load and waits while the document is interactive', async () => {
   const { waitForWindowLoad } = await import('../src/renderer/features/tasks.mjs');
   await waitForWindowLoad({ readyState: 'complete' }, {});
@@ -106,16 +117,26 @@ test('queue readiness resolves immediately after load and waits while the docume
   assert.equal(ready, true);
 });
 
+test('queue restoration keeps the downloading task ahead of the queued task', async () => {
+  const { createTasks } = await import('../src/renderer/features/tasks.mjs');
+  const ctx = taskFixture({ listQueue: () => [
+    { id: 'active', status: 'downloading' },
+    { id: 'waiting', status: 'queued' }
+  ] });
+  const tasks = createTasks(ctx);
+  const taskIds = () => ctx.$('#taskList').children.map(node => node.dataset.task);
+
+  await tasks.restoreQueue();
+  assert.deepEqual(taskIds(), ['active', 'waiting']);
+
+  await tasks.withTaskUpdates(updates => tasks.acceptTask({ id: 'new', status: 'queued' }, updates));
+  assert.deepEqual(taskIds(), ['new', 'active', 'waiting']);
+});
+
 test('queue restoration replays latest progress by ID and terminal events win over stale snapshots', async () => {
   const { createTasks } = await import('../src/renderer/features/tasks.mjs');
   const snapshot = deferred();
-  const ctx = fixture({ listQueue: () => snapshot.promise });
-  ctx.document.createElement = () => {
-    const card = new Element();
-    for (const selector of ['.progress-track', '.task-percent', '.task-info', '.task-status',
-      '.task-title', '.task-meta', '[data-cancel-task]', '[data-open-video]', '[data-open-folder]']) card.part(selector);
-    return card;
-  };
+  const ctx = taskFixture({ listQueue: () => snapshot.promise });
   const tasks = createTasks(ctx);
   tasks.bind();
   const restoring = tasks.restoreQueue();

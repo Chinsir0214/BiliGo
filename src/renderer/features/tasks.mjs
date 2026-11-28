@@ -36,7 +36,7 @@ export function createTasks(ctx) {
     finally { requests.delete(updates); }
   }
 
-  function acceptTask(task, updates) {
+  function acceptTask(task, updates, { prepend = true } = {}) {
     if (!task?.id) throw new Error('下载队列未返回任务编号');
     const update = updates.get(task.id);
     if (update === finished) return false;
@@ -73,7 +73,8 @@ export function createTasks(ctx) {
     node.querySelector('[data-open-video]').dataset.openVideo = task.url || '';
     node.querySelector('[data-open-folder]').dataset.openFolder = task.outputDir || '';
     empty.remove();
-    list.prepend(node);
+    if (prepend) list.prepend(node);
+    else list.append(node);
     tasks.set(task.id, parts);
     if (update) renderTaskProgress(parts, update);
     return true;
@@ -123,7 +124,7 @@ export function createTasks(ctx) {
       await withTaskUpdates(async updates => {
         await waitForWindowLoad(document, window);
         const queued = await readQueue();
-        for (const task of queued) acceptTask(task, updates);
+        for (const task of queued) acceptTask(task, updates, { prepend: false });
       });
     } catch (error) {
       toast(`恢复下载队列失败：${errorMessage(error)}`);

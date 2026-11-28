@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1
+
+- Removed the disabled background fill from outer form field labels (such as disabled audio format in Settings) so only the disabled control itself is shaded.
+- Kept long multi-select labels (such as subtitle languages) on a single truncated line with hover tooltips, matching adjacent select height and alignment.
+- Refined compact `1000x700` download-center spacing and single-line footer truncation with full-path tooltips so the primary download button stays unclipped.
+- Preserved restored queue order (`downloading` tasks ahead of `queued` tasks) when reloading active downloads.
+- Centered toast notifications within the main content area during normal navigation and across the full window while dialogs are open, rounded the dialog close-button focus ring, and added subtle sticky topbar separation on scroll.
+
 ## 1.5.0
 
 - Hardened local path and IPC validation: `shell:open` now requires an existing directory, `video:play-local` requires a regular playable media file, shell open errors are surfaced instead of ignored, CSP disables inline styles and external renderer connections, and Electron permission requests and webview attachments are blocked.

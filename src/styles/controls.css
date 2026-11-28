@@ -79,6 +79,7 @@
   place-items: center;
   width: 32px;
   height: 32px;
+  border-radius: var(--radius-control);
   color: var(--muted);
 }
 
@@ -180,7 +181,15 @@ input[type="checkbox"] {
 
 .custom-select-button {
   position: relative;
-  text-align: left;
+  text-align: center;
+}
+
+.custom-select-button,
+.custom-select-button [data-label] {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .custom-select-button::after {
@@ -248,8 +257,12 @@ input[type="checkbox"] {
   font-weight: 700;
 }
 
-:is(.format-grid, .settings-grid) > .is-disabled,
+:is(.format-grid, .settings-grid) > .is-disabled {
+  color: var(--muted);
+}
+
 .content-check.is-disabled,
+input:not([type="checkbox"]):disabled,
 .custom-select-button:disabled {
   color: var(--muted);
   background-color: var(--soft);
